@@ -1,6 +1,10 @@
-streamlit
+streamlit>=1.66.0
 python-dotenv
-langchain-chroma
-langchain-openai
 langchain-core
+langchain-openai
+langchain-chroma
 chromadb
+openai
+pandas
+altair
+ 

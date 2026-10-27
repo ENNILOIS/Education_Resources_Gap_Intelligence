@@ -1,0 +1,67 @@
+LAGOS STATE EDUCATION RESOURCE-GAP RANKING
+Source: Resource_Gap_Scoring notebook output
+Number of LGAs: 20
+Interpretation: A higher resource-gap score indicates a larger relative resource gap in this comparison. The score is a scaled index out of 100; it is not the percentage of resources missing.
+
+RANKING (highest to lowest resource-gap score)
+
+Rank 1: Badagry
+Resource-gap score: 100.00 out of 100
+
+Rank 2: Ajeromi/Ifelodun
+Resource-gap score: 91.09 out of 100
+
+Rank 3: Ojo
+Resource-gap score: 85.40 out of 100
+
+Rank 4: Ibeju/Lekki
+Resource-gap score: 73.65 out of 100
+
+Rank 5: Alimosho
+Resource-gap score: 70.85 out of 100
+
+Rank 6: Ikorodu
+Resource-gap score: 69.10 out of 100
+
+Rank 7: Ifako/Ijaye
+Resource-gap score: 60.61 out of 100
+
+Rank 8: Apapa
+Resource-gap score: 53.98 out of 100
+
+Rank 9: Amuwo Odofin
+Resource-gap score: 38.37 out of 100
+
+Rank 10: Shomolu
+Resource-gap score: 36.95 out of 100
+
+Rank 11: Agege
+Resource-gap score: 34.68 out of 100
+
+Rank 12: Lagos Island
+Resource-gap score: 33.00 out of 100
+
+Rank 13: Epe
+Resource-gap score: 31.10 out of 100
+
+Rank 14: Ikeja
+Resource-gap score: 30.11 out of 100
+
+Rank 15: Eti-Osa
+Resource-gap score: 26.95 out of 100
+
+Rank 16: Surulere
+Resource-gap score: 22.49 out of 100
+
+Rank 17: Kosofe
+Resource-gap score: 18.36 out of 100
+
+Rank 18: Oshodi/Isolo
+Resource-gap score: 15.78 out of 100
+
+Rank 19: Lagos Mainland
+Resource-gap score: 14.59 out of 100
+
+Rank 20: Mushin
+Resource-gap score: 8.25 out of 100
+
