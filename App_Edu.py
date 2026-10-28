@@ -613,29 +613,47 @@ OVERALL_WORDS = [
 SOURCE_FILTERS = {"pdf": None, "txt": None}
 
 
-def make_filter(values):
+NAME_KEYS = ["source", "file_path", "filename", "file_name", "path", "title"]
+
+
+def make_filter(key, values):
     values = sorted(values)
-    if not values:
-        return None
+    if not key or not values:
+        return None            # no label to filter on: search the whole knowledge base
     if len(values) == 1:
-        return {"source": values[0]}
-    return {"source": {"$in": values}}
+        return {key: values[0]}
+    return {key: {"$in": values}}
 
 
 @st.cache_data(show_spinner=False)
 def read_sources(_vector_db, pieces):
-    """List every document name stored in the knowledge base."""
+    """Every document name stored in the knowledge base, per label key."""
     data = _vector_db._collection.get(include=["metadatas"])
-    return sorted({(m or {}).get("source", "") for m in data["metadatas"]} - {""})
+    found = {}
+    for meta in data["metadatas"]:
+        for key in NAME_KEYS:
+            value = (meta or {}).get(key)
+            if isinstance(value, str) and value:
+                found.setdefault(key, set()).add(value)
+    return {key: sorted(values) for key, values in found.items()}
 
 
 def set_source_filters(vector_db, pieces):
-    sources = read_sources(vector_db, pieces)
-    pdfs = [x for x in sources if x.lower().endswith(".pdf")]
-    txts = [x for x in sources if "ranking" in x.lower()]
-    SOURCE_FILTERS["pdf"] = make_filter(pdfs)
-    SOURCE_FILTERS["txt"] = make_filter(txts)
-    return sources, pdfs, txts
+    """Work out how the documents are labelled, whatever the notebook used.
+    If they carry no label at all, ERGIT simply searches everything."""
+    found = read_sources(vector_db, pieces)
+    pdf_key, pdfs, txt_key, txts = None, [], None, []
+    for key in NAME_KEYS:
+        values = found.get(key, [])
+        if not pdfs:
+            pdfs = [v for v in values if v.lower().endswith(".pdf")]
+            pdf_key = key if pdfs else None
+        if not txts:
+            txts = [v for v in values if "ranking" in v.lower()]
+            txt_key = key if txts else None
+    SOURCE_FILTERS["pdf"] = make_filter(pdf_key, pdfs)
+    SOURCE_FILTERS["txt"] = make_filter(txt_key, txts)
+    return found, pdfs, txts
 
 
 def search_containing(vector_db, query, must_contain, k=4, source_filter="pdf"):
@@ -667,10 +685,10 @@ def retrieve_context(question, vector_db, general_retriever):
     is_ranking = bool(RANKING_PATTERN.search(question_lower))
 
     # 1. Overall resource-gap ranking (the ranking text file + PDF summary)
-    if is_overall and SOURCE_FILTERS["txt"]:
-        ranking_docs = vector_db.similarity_search(
-            "LAGOS STATE EDUCATION RESOURCE-GAP RANKING", k=2,
-            filter=SOURCE_FILTERS["txt"]
+    if is_overall:
+        ranking_docs = search_containing(
+            vector_db, "LAGOS STATE EDUCATION RESOURCE-GAP RANKING",
+            "RESOURCE-GAP RANKING", k=2, source_filter="txt"
         )
         ranking_docs.sort(key=lambda d: 0 if "LAGOS STATE EDUCATION RESOURCE-GAP RANKING"
                           in d.page_content.upper() else 1)
@@ -1971,17 +1989,7 @@ Put the <code>chroma_store</code> folder (with everything inside it) in the
         st.stop()
 
     # Find the document names actually stored (they change if files are moved)
-    sources, pdfs, txts = set_source_filters(vector_db, pieces)
-    if not pdfs:
-        html(f"""
-<div class="ergit-error">
-<b>The knowledge base has no PDF document in it.</b><br>
-Documents found: <code>{escape(", ".join(sources) or "none")}</code><br>
-Rebuild <code>chroma_store</code> from the RAG notebook with
-Lagos_Education_RAG_Knowledge_Base.pdf, push it, and reboot.
-</div>
-""")
-        st.stop()
+    set_source_filters(vector_db, pieces)
 
     search_kwargs = {"k": 8}
     if SOURCE_FILTERS["pdf"]:
