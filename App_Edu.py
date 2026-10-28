@@ -17,6 +17,7 @@ from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.documents import Document
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -501,6 +502,11 @@ Tone:
 - Be warm, friendly and professional, like a helpful teacher. Use plain
   English and explain terms simply. Do not sound stiff or robotic.
 - You may use the user's name now and then, but not in every answer.
+- Answer the question directly with the figures in the context. Do not
+  ask the user to choose or clarify when you can already answer; if they
+  say "yes" or "do that" to your earlier suggestion, do it right away.
+- The context contains full rankings of all 20 LGAs ("Ranking of LGAs by
+  ..."), state summaries and averages by school level: use them.
 - End with one short, friendly suggestion of what they could ask next.
 - If the user only greets you, says thanks or chats, reply warmly in one
   or two sentences and suggest a question they could ask.
@@ -656,15 +662,45 @@ def set_source_filters(vector_db, pieces):
     return found, pdfs, txts
 
 
+def squash(text):
+    """Lower-case and join broken lines, so PDF line breaks don't hide words."""
+    return re.sub(r"\s+", " ", text).lower()
+
+
+@st.cache_resource(show_spinner=False)
+def load_all_pieces(_vector_db, pieces):
+    """The knowledge base is small, so keep every piece in memory once.
+    Exact-word search on this is fast and is not fooled by line breaks."""
+    data = _vector_db._collection.get(include=["documents", "metadatas"])
+    out = []
+    for order, (text, meta) in enumerate(zip(data["documents"], data["metadatas"])):
+        if text:
+            out.append({"doc": Document(page_content=text, metadata=meta or {}),
+                        "flat": squash(text), "order": order})
+    return out
+
+
 def search_containing(vector_db, query, must_contain, k=4, source_filter="pdf"):
-    """Search only the pieces that contain an exact phrase."""
+    """Pieces that contain a phrase (ignoring line breaks and capitals),
+    the most relevant first."""
     try:
-        return vector_db.similarity_search(
-            query, k=k, filter=SOURCE_FILTERS.get(source_filter),
-            where_document={"$contains": must_contain}
-        )
+        pieces = load_all_pieces(vector_db, vector_db._collection.count())
     except Exception:
         return []
+    phrase = squash(must_contain)
+    hits = [p for p in pieces if phrase in p["flat"]]
+    if source_filter == "txt":
+        hits = [p for p in hits if "ranking" in str(p["doc"].metadata).lower()] or hits
+
+    def score(p):
+        s = p["flat"].count(phrase)
+        if f"summary for {phrase}" in p["flat"] or f"{phrase} lga" in p["flat"]:
+            s += 10
+        if "ranking of lgas" in p["flat"] or "resource-gap ranking" in p["flat"]:
+            s += 5
+        return (-s, p["order"])
+
+    return [p["doc"] for p in sorted(hits, key=score)[:k]]
 
 
 def retrieve_context(question, vector_db, general_retriever):
@@ -699,7 +735,7 @@ def retrieve_context(question, vector_db, general_retriever):
     # 2. Full rankings of all 20 LGAs (teachers, classrooms, toilets, learners)
     if is_ranking or is_overall:
         add(search_containing(vector_db, "ranking of LGAs from most lacking to least lacking",
-                              "Ranking of LGAs by", k=4), "Education PDF")
+                              "Ranking of LGAs by", k=6), "Education PDF")
         add(search_containing(vector_db, "how many LGAs are lacking teachers classrooms toilets",
                               "Out of 20 LGAs", k=1), "Education PDF")
 
@@ -718,7 +754,11 @@ def retrieve_context(question, vector_db, general_retriever):
                                   name), "Education PDF")
 
     # 4. School levels
-    if any(w in question_lower for w in ["level", "primary", "jss", "sss", "junior", "senior"]):
+    if any(w in question_lower for w in ["level", "primary", "jss", "sss", "junior", "senior",
+                                         "average", "lagos state", "whole state", "statewide",
+                                         "all of lagos", "across lagos"]):
+        add(search_containing(vector_db, "how many LGAs are lacking teachers classrooms toilets",
+                              "Out of 20 LGAs", k=1), "Education PDF")
         add(search_containing(vector_db, "school level average students per teacher classroom toilet",
                               "across Lagos averaged"), "Education PDF")
 
