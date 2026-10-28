@@ -3,7 +3,7 @@ python-dotenv
 langchain-core
 langchain-openai
 langchain-chroma
-chromadb
+langgraph
 openai
 pandas
 altair
