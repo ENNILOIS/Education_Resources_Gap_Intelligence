@@ -1185,19 +1185,61 @@ def transcribe(audio_file):
 # 7. Answer questions
 # --------------------------------------------------
 
+# Everyday chat: greetings, thanks, "how are you", "who are you"...
+SMALL_TALK = re.compile(
+    r"^\s*(hi+|hello+|hey+|hiya|good (morning|afternoon|evening|day)|"
+    r"how are you|how('?s| is) (it going|everything|your day)|how far|"
+    r"what'?s up|sup|thanks?( you)?|thank u|ok(ay)?|cool|nice|great|"
+    r"bye|goodbye|see you|who are you|what are you|what can you do|"
+    r"what do you do|help|nice to meet you)\b[\s!.,?😊👋🙂]*",
+    re.I
+)
+DATA_WORDS = re.compile(
+    r"\b(lga|teacher|classroom|toilet|school|student|learner|ratio|rank|"
+    r"standard|ube|jss|sss|primary|enrol|gap|badagry|lagos|chart)\w*",
+    re.I
+)
+
+chat_prompt = ChatPromptTemplate.from_template("""
+You are ERGIT, a warm and friendly assistant for Lagos State public school
+data (teachers, classrooms and toilets in the 20 Lagos LGAs, compared with
+the UBE standards). Reply naturally to what the user said, like a friendly
+person, in 1 to 3 short sentences. If it fits, mention one thing you can
+help with, for example: "Which LGAs need teachers most?". Do not make up
+any statistics. The user's name: {name}
+
+User: {question}
+""")
+
+
+def is_small_talk(question):
+    """True for everyday chat that does not need the documents."""
+    return bool(SMALL_TALK.match(question)) and not DATA_WORDS.search(question)
+
+
+def friendly_reply(question, chat_model, name=None):
+    text = run_quick(chat_prompt, {"question": question, "name": name or "not given"}, chat_model)
+    return text.strip() or "Hi there! 😊 Ask me anything about Lagos public schools."
+
+
 def answer_question(question, vector_db, chat_model, general_retriever, name=None):
     question = quick_fix(question)  # e.g. "lime chart" -> "line chart"
+
+    # 1. Everyday chat: answer like a person, no documents needed
+    if is_small_talk(question):
+        return friendly_reply(question, chat_model, name), "ERGIT", None
+
     context, source_used = retrieve_context(
         question, vector_db, general_retriever
     )
 
+    # 2. Nothing found: still reply kindly instead of a stiff message
     if not context.strip():
-        return (
-            "I could not find relevant information in the "
-            "available education documents.",
-            source_used,
-            None
-        )
+        return friendly_reply(
+            question + "\n(Note for ERGIT: the documents had nothing on this. "
+            "Say so kindly and suggest a question about Lagos LGAs.)",
+            chat_model, name
+        ), "ERGIT", None
 
     chain = prompt | chat_model | StrOutputParser()
 
@@ -1763,6 +1805,23 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         vector_db, chat_model = load_rag_components(api_key, embedding_api_key)
     except Exception as e:
         html(f'<div class="ergit-error"><b>Could not initialize the RAG system:</b> {e}</div>')
+        st.stop()
+
+    # The knowledge base must sit next to this file, in a folder called chroma_store
+    try:
+        pieces = vector_db._collection.count()
+    except Exception:
+        pieces = 0
+    if pieces == 0:
+        html(f"""
+<div class="ergit-error">
+<b>The knowledge base was not found.</b><br>
+ERGIT looked for the folder <code>chroma_store</code> here:<br>
+<code>{escape(os.path.join(BASE_DIR, "chroma_store"))}</code><br><br>
+Put the <code>chroma_store</code> folder (with everything inside it) in the
+<b>same folder as this app file</b> on GitHub, then reboot the app.
+</div>
+""")
         st.stop()
 
     general_retriever = vector_db.as_retriever(
