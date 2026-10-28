@@ -601,14 +601,41 @@ OVERALL_WORDS = [
     "greatest gap", "most lacking overall", "least lacking overall"
 ]
 
-PDF_FILTER = {"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
+# Which documents are in the knowledge base. Filled in when the app starts,
+# from the database itself, so moving or renaming the files does not break it.
+SOURCE_FILTERS = {"pdf": None, "txt": None}
 
 
-def search_containing(vector_db, query, must_contain, k=4, source_filter=PDF_FILTER):
+def make_filter(values):
+    values = sorted(values)
+    if not values:
+        return None
+    if len(values) == 1:
+        return {"source": values[0]}
+    return {"source": {"$in": values}}
+
+
+@st.cache_data(show_spinner=False)
+def read_sources(_vector_db, pieces):
+    """List every document name stored in the knowledge base."""
+    data = _vector_db._collection.get(include=["metadatas"])
+    return sorted({(m or {}).get("source", "") for m in data["metadatas"]} - {""})
+
+
+def set_source_filters(vector_db, pieces):
+    sources = read_sources(vector_db, pieces)
+    pdfs = [x for x in sources if x.lower().endswith(".pdf")]
+    txts = [x for x in sources if "ranking" in x.lower()]
+    SOURCE_FILTERS["pdf"] = make_filter(pdfs)
+    SOURCE_FILTERS["txt"] = make_filter(txts)
+    return sources, pdfs, txts
+
+
+def search_containing(vector_db, query, must_contain, k=4, source_filter="pdf"):
     """Search only the pieces that contain an exact phrase."""
     try:
         return vector_db.similarity_search(
-            query, k=k, filter=source_filter,
+            query, k=k, filter=SOURCE_FILTERS.get(source_filter),
             where_document={"$contains": must_contain}
         )
     except Exception:
@@ -633,10 +660,10 @@ def retrieve_context(question, vector_db, general_retriever):
     is_ranking = bool(RANKING_PATTERN.search(question_lower))
 
     # 1. Overall resource-gap ranking (the ranking text file + PDF summary)
-    if is_overall:
+    if is_overall and SOURCE_FILTERS["txt"]:
         ranking_docs = vector_db.similarity_search(
             "LAGOS STATE EDUCATION RESOURCE-GAP RANKING", k=2,
-            filter={"source": "Lagos_Resource_Gap_Ranking.txt"}
+            filter=SOURCE_FILTERS["txt"]
         )
         ranking_docs.sort(key=lambda d: 0 if "LAGOS STATE EDUCATION RESOURCE-GAP RANKING"
                           in d.page_content.upper() else 1)
@@ -1824,14 +1851,23 @@ Put the <code>chroma_store</code> folder (with everything inside it) in the
 """)
         st.stop()
 
-    general_retriever = vector_db.as_retriever(
-        search_kwargs={
-            "k": 8,
-            "filter": {
-                "source": "Lagos_Education_RAG_Knowledge_Base.pdf"
-            }
-        }
-    )
+    # Find the document names actually stored (they change if files are moved)
+    sources, pdfs, txts = set_source_filters(vector_db, pieces)
+    if not pdfs:
+        html(f"""
+<div class="ergit-error">
+<b>The knowledge base has no PDF document in it.</b><br>
+Documents found: <code>{escape(", ".join(sources) or "none")}</code><br>
+Rebuild <code>chroma_store</code> from the RAG notebook with
+Lagos_Education_RAG_Knowledge_Base.pdf, push it, and reboot.
+</div>
+""")
+        st.stop()
+
+    search_kwargs = {"k": 8}
+    if SOURCE_FILTERS["pdf"]:
+        search_kwargs["filter"] = SOURCE_FILTERS["pdf"]
+    general_retriever = vector_db.as_retriever(search_kwargs=search_kwargs)
 
     # ERGIT says hello first, like a chatbot (typed out the first time only)
     with st.chat_message("assistant", avatar=":material/school:"):
