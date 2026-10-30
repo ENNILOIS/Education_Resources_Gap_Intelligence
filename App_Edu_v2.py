@@ -313,6 +313,9 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .typing span:nth-child(3) {animation-delay: 0.4s;}
 @keyframes blink {0%, 80%, 100% {opacity: 0.25; transform: translateY(0);} 40% {opacity: 1; transform: translateY(-3px);}}
 .suggest-label {font-size: 0.8rem !important; color: var(--muted) !important; margin: 0.6rem 0 0.1rem 0 !important;}
+[class*="st-key-followups_"] button {border-radius: 999px !important; padding: 0.3rem 0.85rem !important; min-height: 0 !important; background: #FFFBEB !important; border: 1px solid #FDE68A !important; box-shadow: none !important; text-align: left !important;}
+[class*="st-key-followups_"] button p {font-weight: 500 !important; font-size: 0.85rem !important;}
+[class*="st-key-followups_"] button:hover {border-color: var(--blue) !important; color: var(--blue) !important; background: #EEF4FF !important; transform: none !important;}
 .st-key-suggestions button {border-radius: 999px !important; padding: 0.3rem 0.85rem !important; min-height: 0 !important; font-size: 0.85rem !important; background: #F5F8FE !important; border: 1px solid var(--line) !important; box-shadow: none !important;}
 .st-key-suggestions button p {font-weight: 500 !important; font-size: 0.85rem !important;}
 .st-key-suggestions button:hover {border-color: var(--blue) !important; color: var(--blue) !important; background: #EEF4FF !important; transform: none !important;}
@@ -331,6 +334,17 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .school-note {font-size: 0.75rem !important; color: var(--muted) !important; margin-top: 0.4rem !important;}
 [data-testid="stChatInputSubmitButton"]:not(:disabled) {background: var(--blue) !important; color: #FFFFFF !important;}
 .st-key-dictation {position: absolute; height: 0 !important; overflow: hidden; opacity: 0; pointer-events: none;}
+.way {background: #FFFFFF; border: 1px solid var(--line); border-radius: 20px; padding: 1.4rem 1.5rem; height: 100%;
+box-shadow: 0 10px 30px rgba(15, 30, 74, 0.06); border-top: 4px solid var(--blue);}
+.way.way-parent {border-top-color: var(--yellow);}
+.way-top {display: flex; gap: 0.9rem; align-items: center; margin-bottom: 0.8rem;}
+.way-top .feature-icon {margin-bottom: 0;}
+.way-who {font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);}
+.way-title {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.25rem; color: var(--ink);}
+.way-text {color: var(--muted); font-size: 0.93rem; line-height: 1.6; margin-bottom: 0.8rem;}
+.way-ask {background: #F5F8FE; border: 1px solid var(--line); border-radius: 12px; padding: 0.45rem 0.8rem;
+font-size: 0.86rem; color: var(--ink); margin-top: 0.45rem;}
+.way-data {font-size: 0.75rem; color: var(--muted); margin-top: 0.9rem;}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -424,6 +438,20 @@ border-radius: 14px; padding: 1rem 1.1rem;
 .lb {padding: 0.75rem 0.8rem;}
 .chart-chip {font-size: 0.72rem;}
 .st-key-suggestions button {font-size: 0.8rem !important; padding: 0.3rem 0.7rem !important;}
+[class*="st-key-followups_"] button p {font-size: 0.8rem !important;}
+[class*="st-key-followups_"] button, .st-key-suggestions button {height: auto !important; text-align: left !important;}
+[class*="st-key-followups_"] button p, .st-key-suggestions button p {white-space: normal !important; text-align: left !important; line-height: 1.35 !important;}
+/* Number cards: two per row on phones instead of one long column */
+[data-testid="stHorizontalBlock"]:has(.stat) {flex-wrap: wrap !important; gap: 0.5rem !important;}
+[data-testid="stHorizontalBlock"]:has(.stat) > [data-testid="stColumn"] {flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; width: calc(50% - 0.5rem) !important;}
+.stat {padding: 0.85rem 0.85rem 0.75rem;}
+.stat-icon {width: 32px; height: 32px; border-radius: 9px;}
+.stat-num {font-size: 1.45rem; margin-top: 0.5rem;}
+.stat-label {font-size: 0.82rem;}
+.stat-note {font-size: 0.7rem;}
+.way {padding: 1.1rem 1.1rem;}
+.way-title {font-size: 1.1rem;}
+.way-ask {font-size: 0.82rem;}
 [class*="st-key-actions_"] button {font-size: 0.78rem !important;}
 }
 </style>
@@ -433,7 +461,7 @@ border-radius: 14px; padding: 1rem 1.1rem;
 def topbar():
     html(f"""
 <div class="topbar">
-<div class="pill"><span class="dot"></span> Lagos State · 20 LGAs · Public schools</div>
+<div class="pill"><span class="dot"></span> Lagos State · 20 LGAs · Public schools for parents</div>
 <div class="brand">
 <div>
 <div class="brand-name">ERGIT</div>
@@ -2024,10 +2052,10 @@ h1 {font-size: 32px;} .text {left: 7%; right: 7%;} canvas {opacity: 0.35;}
 <div class="text">
 <div class="badge">🎓 Education Resource-Gap Intelligence Tool</div>
 <h1>Every child deserves a <span>teacher</span>, a classroom and a clean toilet.</h1>
-<p>ERGIT shows which Lagos LGAs are furthest from the national school standards, and where support should go first.</p>
+<p>ERGIT shows which Lagos LGAs are furthest from the national school standards, and helps parents compare public schools before they enrol a child.</p>
 <div class="row">
-<div class="mini"><b>20</b><span>LGAs analysed</span></div>
-<div class="mini"><b>360</b><span>data records</span></div>
+<div class="mini"><b>20</b><span>LGAs ranked</span></div>
+<div class="mini"><b>1,689</b><span>public schools</span></div>
 <div class="mini"><b>3</b><span>UBE standards</span></div>
 </div>
 </div>
@@ -2241,7 +2269,8 @@ def render_sidebar():
 </div>
 <p style="font-size:0.88rem; color:#5B6680; line-height:1.55;">
 A data tool that ranks Lagos LGAs by how urgently their public schools
-need teachers, classrooms and toilets.
+need teachers, classrooms and toilets, and helps parents compare
+public schools in an area.
 </p>
 <div class="eyebrow" style="margin-top:1.2rem;">UBE minimum standards</div>
 <div class="side-std">{ic("teacher", "#2563EB")} <span><b>35</b> students per teacher</span></div>
@@ -2283,10 +2312,55 @@ cover a question, ERGIT will say so.
 def render_home():
     topbar()
 
+    # Number of schools, read from the school file so it always matches it
+    school_file = get_schools()
+    n_schools = len(school_file) if school_file is not None else 1689
+    hero = HERO_3D.replace("<b>1,689</b>", f"<b>{n_schools:,}</b>")
+
     if hasattr(st, "iframe"):
-        st.iframe(HERO_3D, height=470)
+        st.iframe(hero, height=470)
     else:
-        components.html(HERO_3D, height=470)
+        components.html(hero, height=470)
+
+    html('<div class="gap"></div>')
+
+    # Two ways to use ERGIT
+    html("""
+<div class="eyebrow">Two ways to use ERGIT</div>
+<div class="section-title">For the people who <span class="hl">plan</span>, and the families who <span class="hl">choose</span></div>
+<p class="lead">One assistant, two kinds of question. Ask about an area to see where Lagos needs
+support, or ask about schools to find a place for your child.</p>
+<div style="height:1rem;"></div>
+""")
+    w1, w2 = st.columns(2)
+    with w1:
+        html(f"""
+<div class="way">
+<div class="way-top"><div class="feature-icon" style="background:#DBEAFE;">{ic("bars", "#2563EB", 24)}</div>
+<div><div class="way-who">For government, NGOs and donors</div>
+<div class="way-title">Compare the 20 LGAs</div></div></div>
+<div class="way-text">See which LGAs are furthest from the UBE standards for teachers,
+classrooms and toilets, how levels compare, and how things changed over time.</div>
+<div class="way-ask">“Which LGAs need teachers most?”</div>
+<div class="way-ask">“Compare Alimosho and Ikeja on toilets”</div>
+<div class="way-ask">“Teacher ratio trend 2016/17 to 2019/20”</div>
+<div class="way-data">{ic("file", "#5B6680", 13)} DNEMIS School Census 2024/25 · Lagos Bureau of Statistics</div>
+</div>
+""")
+    with w2:
+        html(f"""
+<div class="way way-parent">
+<div class="way-top"><div class="feature-icon" style="background:#FEF3C7;">{ic("cap", "#B45309", 24)}</div>
+<div><div class="way-who">For parents and families</div>
+<div class="way-title">Find a public school</div></div></div>
+<div class="way-text">Moving to a new area? Compare the public schools there on class size,
+teachers and toilets, see them on a map, and get a shortlist to visit.</div>
+<div class="way-ask">“Public JSS schools in Kosofe with the smallest classes”</div>
+<div class="way-ask">“Primary schools near Ikotun”</div>
+<div class="way-ask">“How does Mende Senior High compare with the standards?”</div>
+<div class="way-data">{ic("file", "#5B6680", 13)} NMIS school survey 2012–2014 · {n_schools:,} public schools</div>
+</div>
+""")
 
     html('<div class="gap"></div>')
 
@@ -2322,15 +2396,54 @@ Here is how many of the 20 LGAs fall short.</p>
 <p style="font-size:0.8rem; color:#5B6680; margin-top:0.8rem;">
 Public Primary, JSS and SSS schools combined for each LGA. Sources: DNEMIS Annual School Census 2024/25; Lagos Bureau of Statistics.
 </p>
-<div class="gap"></div>
+<div style="height:1.6rem;"></div>
 """)
+
+    # School findings (worked out from the school file, so they always match it)
+    schools = get_schools()
+    if schools is not None:
+        total = len(schools)
+        full = int(schools[["Students_per_Teacher", "Students_per_Classroom",
+                            "Students_per_Toilet"]].notna().all(axis=1).sum())
+        within = int((schools["Overall_Label"] == "Within UBE benchmark").sum())
+        high = int((schools["Overall_Label"] == "High-pressure facilities – visit before enrolment").sum())
+        html("""
+<div class="eyebrow">Public schools · 2012–2014 survey</div>
+<p class="lead" style="margin-bottom:1rem;">Each public school was compared with the same UBE standards,
+so parents can see how crowded a school was before they visit.</p>
+""")
+        s1, s2, s3, s4 = st.columns(4)
+        school_cards = [
+            (s1, "classroom", "#DBEAFE", "#2563EB", f"{total:,}", "", "Public schools", 100, "#2563EB", "Across all 20 LGAs"),
+            (s2, "file", "#EDE9FE", "#7C3AED", f"{full:,}", "", "With full figures", round(full / total * 100), "#8B5CF6", "Teachers, classrooms and toilets"),
+            (s3, "target", "#D1FAE5", "#059669", f"{within:,}", "", "Within all 3 standards", round(within / max(full, 1) * 100), "#10B981", f"{within / max(full, 1):.0%} of schools with full figures"),
+            (s4, "alert", "#FEE2E2", "#DC2626", f"{high:,}", "", "High-pressure schools", round(high / max(full, 1) * 100), "#F97066", f"{high / max(full, 1):.0%} of schools with full figures"),
+        ]
+        for col, icon, bg, fg, num, small, label, width, bar, note in school_cards:
+            with col:
+                html(f"""
+<div class="stat">
+<div class="stat-top"><div class="stat-icon" style="background:{bg};">{ic(icon, fg, 20)}</div></div>
+<div class="stat-num">{num}<small>{small}</small></div>
+<div class="stat-label">{label}</div>
+<div class="bar"><span style="width:{width}%; background:{bar};"></span></div>
+<div class="stat-note">{note}</div>
+</div>
+""")
+        html("""
+<p style="font-size:0.8rem; color:#5B6680; margin-top:0.8rem;">
+Source: NMIS school survey 2012–2014 (Federal Government). School figures are older than the LGA figures and may have changed, so ERGIT always shows the survey year.
+</p>
+""")
+
+    html('<div class="gap"></div>')
 
     # What ERGIT does
     html("""
 <div class="eyebrow">What ERGIT does</div>
 <div class="section-title">From scattered reports to <span class="hl">clear answers</span></div>
 <p class="lead">Nigeria's education data sits in many separate reports. ERGIT brings it together,
-so decision-makers can see where support should go first.</p>
+so decision-makers can see where support should go first, and parents can choose a school with facts.</p>
 <div style="height:1rem;"></div>
 """)
 
@@ -2346,17 +2459,17 @@ so decision-makers can see where support should go first.</p>
     with f2:
         html(f"""
 <div class="feature">
-<div class="feature-icon" style="background:#FEF3C7;">{ic("pie", "#B45309", 24)}</div>
-<div class="feature-title">Draws live charts</div>
-<div class="feature-text">Every answer with figures comes with its own live dashboard, and ERGIT picks the chart that fits the question best.</div>
+<div class="feature-icon" style="background:#FEF3C7;">{ic("cap", "#B45309", 24)}</div>
+<div class="feature-title">Compares public schools</div>
+<div class="feature-text">Lists the public schools in an area or near a place, compares them with the standards, labels each one fairly and shows them on a map.</div>
 </div>
 """)
     with f3:
         html(f"""
 <div class="feature">
 <div class="feature-icon" style="background:#D1FAE5;">{ic("chat", "#059669", 24)}</div>
-<div class="feature-title">Answers your questions</div>
-<div class="feature-text">An AI assistant explains the results in plain English, shows its source, and helps parents compare public schools in an area.</div>
+<div class="feature-title">Answers with live dashboards</div>
+<div class="feature-text">Type or speak a question. ERGIT replies in plain English, shows its source, and draws the chart that fits the question best.</div>
 </div>
 """)
 
@@ -2369,13 +2482,13 @@ so decision-makers can see where support should go first.</p>
 <div style="height:1rem;"></div>
 <div class="steps">
 <div class="step"><div class="step-num">1</div><div class="step-title">Collect</div>
-<div class="step-text">Official data from DNEMIS and the Lagos Bureau of Statistics.</div></div>
+<div class="step-text">LGA data from DNEMIS and the Lagos Bureau of Statistics; school data from the NMIS survey.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-title">Clean &amp; compare</div>
 <div class="step-text">Checked, cleaned and measured against the UBE standards.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-title">Rank</div>
-<div class="step-text">LGAs ranked by how far they are from the standards.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-title">Rank &amp; label</div>
+<div class="step-text">LGAs ranked by need; each school labelled against the standards.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-title">Explain &amp; chart</div>
-<div class="step-text">The AI assistant answers with sources and a live chart.</div></div>
+<div class="step-text">The AI decides: LGA question or school search, then answers with a live dashboard.</div></div>
 </div>
 <div class="gap"></div>
 """)
@@ -2386,8 +2499,8 @@ so decision-makers can see where support should go first.</p>
         html("""
 <div class="cta">
 <h3>Ready to explore the data?</h3>
-<p>Ask ERGIT which LGAs need teachers, classrooms or toilets most.</p>
-<p class="cta-for">Built for Lagos SUBEB, the Ministry of Basic &amp; Secondary Education, UBEC, NGOs, donors and researchers, and for parents comparing public schools.</p>
+<p>Ask which LGAs need teachers, classrooms or toilets most, or find a public school for your child.</p>
+<p class="cta-for">Built for Lagos SUBEB, the Ministry of Basic &amp; Secondary Education, UBEC, NGOs, donors and researchers, and for parents choosing a public school.</p>
 </div>
 """)
     with right:
@@ -2411,9 +2524,9 @@ SAMPLE_QUESTIONS = [
     (":material/leaderboard:", "Top 5 LGAs with the biggest resource gaps"),
     (":material/person:", "Which LGAs need teachers most?"),
     (":material/water_drop:", "How does Badagry compare with the toilet standard?"),
-    (":material/stacks:", "Which school level is under the most pressure?"),
     (":material/show_chart:", "Teacher ratio trend 2016/17 to 2019/20"),
     (":material/school:", "Public JSS schools in Kosofe with the smallest classes"),
+    (":material/location_on:", "Primary schools near Ikotun"),
 ]
 
 
@@ -2498,7 +2611,7 @@ Put the <code>chroma_store</code> folder (with everything inside it) in the
     voice_question = None
     voice_heard = None
     submission = st.chat_input(
-        "Ask about education resources in Lagos State...",
+        "Ask about an LGA or find a school...",
         key="ergit_chat"
     )
     live_dictation()
@@ -2656,7 +2769,8 @@ def live_dictation():
 # 11b. Retry, edit and versions for each question
 # --------------------------------------------------
 
-GREETING = "Hi, welcome to **ERGIT** 👋 How can I help you today?"
+GREETING = ("Hi, welcome to **ERGIT** 👋 How can I help you today? "
+            "Ask me about Lagos LGAs, or find a public school for your child.")
 
 
 def type_out(text):
@@ -2759,6 +2873,7 @@ def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
                                          "chart": chart, "understood": understood,
                                          "asked": version["question"],
                                          "schools": schools, "school_meta": meta}
+                    version["answer"]["followups"] = make_followups(version["answer"])
                 except Exception as e:
                     print(f"RAG error: {type(e).__name__}: {e}")
                     version["answer"] = {"error": f"{type(e).__name__}: {e}"}
@@ -2769,6 +2884,73 @@ def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
             st.code(version["answer"]["error"])
         else:
             show_assistant_message(version["answer"], t_index)
+            if t_index == len(st.session_state.turns) - 1 and st.session_state.editing is None:
+                show_followups(version["answer"], t_index)
+
+
+# --------------------------------------------------
+# 11c. Two suggested follow-up questions after every answer
+#
+# They link the two sides of ERGIT: an LGA answer suggests looking at the
+# schools in that LGA, and a school answer suggests looking at its LGA.
+# --------------------------------------------------
+
+LEVEL_WORDS = {"Primary": "primary", "JSS": "JSS", "SSS": "SSS", "Secondary": "secondary"}
+DEFAULT_FOLLOWUPS = ["Which LGAs need teachers most?",
+                     "Public primary schools near Ikotun"]
+
+
+def make_followups(answer):
+    """Two short questions the user can tap next."""
+    asked = (answer.get("understood") or answer.get("asked") or "").lower()
+    ideas = []
+
+    schools = answer.get("schools") or []
+    chart = answer.get("chart") or {}
+    labels = [d["label"] for d in chart.get("data", [])]
+    lgas = [match_lga(x) for x in labels if match_lga(x)]
+
+    if schools:
+        f = (answer.get("school_meta") or {}).get("filters", {})
+        lga = f.get("lga") or schools[0]["LGA"]
+        level = LEVEL_WORDS.get(f.get("level"), "")
+        if len(schools) > 1:
+            ideas.append(f"How does {schools[0]['School_Name']} compare with the UBE standards?")
+        measure = "toilet" if f.get("sort_by") != "toilet" else "teacher"
+        ideas.append(f"Which public {level + ' ' if level else ''}schools in {lga} "
+                     f"have the fewest students per {measure}?")
+        ideas.append(f"How does {lga} LGA compare with the UBE standards?")
+    elif lgas:
+        top = lgas[0]
+        ideas.append(f"Public schools in {top} with the smallest classes")
+        ideas.append(f"How does {top} compare with the UBE standards?")
+        if len(lgas) > 1:
+            ideas.append(f"Compare {lgas[0]} and {lgas[1]} on teachers, classrooms and toilets")
+    elif chart:
+        ideas += ["Which LGAs have the most students per classroom?",
+                  "Public JSS schools in Alimosho with the smallest classes"]
+    ideas += DEFAULT_FOLLOWUPS
+
+    out = []
+    for q in ideas:
+        if q.lower() != asked and q not in out:
+            out.append(q)
+        if len(out) == 2:
+            break
+    return out
+
+
+def show_followups(answer, t_index):
+    questions = answer.get("followups") or make_followups(answer)
+    if not questions:
+        return
+    html('<p class="suggest-label">You could also ask:</p>')
+    with st.container(horizontal=True, gap="small", key=f"followups_{t_index}"):
+        for i, q in enumerate(questions[:2]):
+            icon = ":material/school:" if "school" in q.lower() else ":material/leaderboard:"
+            if st.button(q, icon=icon, key=f"follow_{t_index}_{i}"):
+                st.session_state.pending_question = q
+                st.rerun()
 
 
 # --------------------------------------------------
