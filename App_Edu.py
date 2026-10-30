@@ -389,6 +389,36 @@ border-radius: 14px; padding: 1rem 1.1rem;
 .section-title {font-size: 1.5rem;}
 .block-container::before {display: none;}
 }
+
+/* Phones (iPhone and Android) */
+@media (max-width: 640px) {
+.block-container {padding-left: 0.9rem !important; padding-right: 0.9rem !important; padding-top: 0.8rem !important;}
+.brand-sub {display: none;}
+.brand-name {font-size: 1.2rem;}
+.pill {font-size: 0.75rem; padding: 0.3rem 0.7rem;}
+.steps {grid-template-columns: 1fr;}
+.section-title {font-size: 1.35rem;}
+.lead {font-size: 0.95rem;}
+.stat-num {font-size: 1.8rem;}
+.cta {padding: 1.4rem 1.3rem;}
+.cta h3 {font-size: 1.3rem;}
+[data-testid="stChatMessage"] {padding: 0.8rem 0.85rem; border-radius: 16px;}
+[data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {font-size: 0.9rem;}
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) {max-width: 88%;}
+.dash-head {flex-direction: column; gap: 0.4rem;}
+.dash-headline {font-size: 1.02rem;}
+.kpi-row {grid-template-columns: 1fr 1fr; gap: 0.5rem;}
+.kpi {padding: 0.55rem 0.6rem; gap: 0.45rem; align-items: flex-start;}
+.kpi-icon {width: 28px; height: 28px; min-width: 28px; border-radius: 8px;}
+.kpi-icon svg {width: 15px; height: 15px;}
+.kpi-label {font-size: 0.62rem;}
+.kpi-value {font-size: 1.05rem;}
+.kpi-sub {white-space: normal; max-width: none; font-size: 0.7rem;}
+.lb {padding: 0.75rem 0.8rem;}
+.chart-chip {font-size: 0.72rem;}
+.st-key-suggestions button {font-size: 0.8rem !important; padding: 0.3rem 0.7rem !important;}
+[class*="st-key-actions_"] button {font-size: 0.78rem !important;}
+}
 </style>
 """)
 
