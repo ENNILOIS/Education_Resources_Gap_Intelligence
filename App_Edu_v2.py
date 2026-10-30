@@ -329,6 +329,8 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .map-key {font-size: 0.75rem !important; color: var(--muted) !important; margin: 0.3rem 0 0 0 !important;}
 .map-key span {font-size: 0.95rem;}
 .school-note {font-size: 0.75rem !important; color: var(--muted) !important; margin-top: 0.4rem !important;}
+[data-testid="stChatInputSubmitButton"]:not(:disabled) {background: var(--blue) !important; color: #FFFFFF !important;}
+.st-key-dictation {position: absolute; height: 0 !important; overflow: hidden; opacity: 0; pointer-events: none;}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -1315,9 +1317,10 @@ def transcribe(audio_file):
     client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
     result = client.audio.transcriptions.create(
         file=("question.wav", audio_file.getvalue()),
-        model="whisper-large-v3-turbo",
+        model="whisper-large-v3",      # the most accurate Whisper model
         language="en",
         prompt=VOICE_HINT,
+        temperature=0,
     )
     return result.text.strip()
 
@@ -2210,6 +2213,7 @@ def start_new_chat():
     st.session_state.turns = []
     st.session_state.current_chat_id = None
     st.session_state.editing = None
+    st.session_state.voice_draft = None
     st.session_state.greeted = False
     st.session_state.page = "chat"
 
@@ -2489,31 +2493,20 @@ Put the <code>chroma_store</code> folder (with everything inside it) in the
     for t_index, turn in enumerate(st.session_state.turns):
         render_turn(t_index, turn, vector_db, chat_model, general_retriever)
 
-    # One input bar: type, or tap the mic beside the send arrow
+    # One input bar: type, or tap the mic and watch your words appear as you speak.
+    # Nothing is sent until you press the send arrow, so you can fix any word first.
     voice_question = None
     voice_heard = None
-    typed_question = None
     submission = st.chat_input(
         "Ask about education resources in Lagos State...",
-        accept_audio=True,
         key="ergit_chat"
     )
+    live_dictation()
 
+    typed_question = None
     if submission:
-        typed_question = (submission.text or "").strip() or None
-        recording = submission.get("audio") if hasattr(submission, "get") else None
-        if recording is not None and not typed_question:
-            with st.spinner("Listening..."):
-                try:
-                    heard = transcribe(recording)
-                    if heard:
-                        voice_heard = heard
-                        voice_question = quick_fix(heard)  # shown at once, tidied up next
-                except Exception as e:
-                    st.error("Sorry, the voice question could not be understood.")
-                    st.code(f"{type(e).__name__}: {e}")
-            if not voice_question:
-                st.warning("No words were heard. Please try again, a little closer to the mic.")
+        text = submission if isinstance(submission, str) else (submission.text or "")
+        typed_question = text.strip() or None
 
     question = (
         typed_question
@@ -2524,10 +2517,139 @@ Put the <code>chroma_store</code> folder (with everything inside it) in the
     if question:
         by_voice = bool(voice_question) and not typed_question
         version = new_version(question, by_voice, voice_heard if by_voice else None)
-        version["needs_fix"] = by_voice
+        version["needs_fix"] = False   # the user has already checked the words
         st.session_state.turns.append({"versions": [version], "current": 0})
         remember_current_chat()
         st.rerun()  # the new turn is answered in place on the next run
+
+
+# --------------------------------------------------
+# 6d. Live voice typing in the chat box
+#
+# Uses the browser's own speech recognition (Chrome, Edge, Android, iPhone
+# Safari). As the user speaks, the words appear in the typing box; they can
+# fix anything, then press send. Nothing is sent until they do.
+# --------------------------------------------------
+
+LIVE_DICTATION = """
+<script>
+(function () {
+  const P = window.parent, doc = P.document;
+  const SR = P.SpeechRecognition || P.webkitSpeechRecognition;
+  const owner = "o" + Math.random().toString(36).slice(2);
+
+  const MIC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+  const STOP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+  if (!doc.getElementById("ergit-mic-style")) {
+    const css = doc.createElement("style");
+    css.id = "ergit-mic-style";
+    css.textContent = `
+      #ergit-mic {border:none; background:transparent; color:#5B6680; width:34px; height:34px;
+        border-radius:10px; display:flex; align-items:center; justify-content:center;
+        cursor:pointer; margin-right:6px; flex-shrink:0; align-self:flex-end; margin-bottom:4px;}
+      #ergit-mic:hover {background:#EEF4FF; color:#2563EB;}
+      #ergit-mic.on {background:#F97066; color:#fff; animation:ergitPulse 1.3s infinite;}
+      @keyframes ergitPulse {0%{box-shadow:0 0 0 0 rgba(249,112,102,.55);}
+        70%{box-shadow:0 0 0 10px rgba(249,112,102,0);} 100%{box-shadow:0 0 0 0 rgba(249,112,102,0);}}
+      #ergit-mic-hint {position:absolute; left:16px; top:-24px; font:600 12px Inter,sans-serif;
+        color:#F97066; background:#fff; padding:2px 8px; border-radius:8px;
+        box-shadow:0 2px 8px rgba(15,30,74,.12);}`;
+    doc.head.appendChild(css);
+  }
+
+  let rec = null, listening = false, base = "";
+
+  function box() { return doc.querySelector('[data-testid="stChatInput"]'); }
+  function area() { const b = box(); return b ? b.querySelector("textarea") : null; }
+
+  function setText(v) {
+    const ta = area(); if (!ta) return;
+    const setter = Object.getOwnPropertyDescriptor(P.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(ta, v);
+    ta.dispatchEvent(new P.Event("input", { bubbles: true }));
+  }
+
+  function hint(show) {
+    const b = box(); if (!b) return;
+    let h = doc.getElementById("ergit-mic-hint");
+    if (show && !h) {
+      h = doc.createElement("div"); h.id = "ergit-mic-hint";
+      h.textContent = "Listening… tap the mic again when you finish";
+      b.style.position = "relative"; b.appendChild(h);
+    }
+    if (!show && h) h.remove();
+  }
+
+  function stop() { if (rec) { try { rec.stop(); } catch (e) {} } }
+
+  function start(lang) {
+    rec = new SR();
+    rec.lang = lang;
+    rec.interimResults = true;     // show words while the user is still speaking
+    rec.continuous = true;         // keep listening through pauses, until the user taps again
+    const ta = area();
+    base = ta && ta.value.trim() ? ta.value.trim() + " " : "";
+    rec.onresult = function (e) {
+      let text = "";
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      setText(base + text.replace(/\\s+/g, " ").trimStart());
+    };
+    rec.onerror = function (e) {
+      if (e.error === "language-not-supported" && lang !== "en-US") { listening = false; start("en-US"); return; }
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        hint(true);
+        const h = doc.getElementById("ergit-mic-hint");
+        if (h) h.textContent = "Microphone blocked: allow it in your browser settings";
+        setTimeout(function () { hint(false); }, 4000);
+      }
+    };
+    rec.onend = function () {
+      listening = false;
+      const btn = doc.getElementById("ergit-mic");
+      if (btn) { btn.classList.remove("on"); btn.innerHTML = MIC; btn.title = "Speak your question"; }
+      hint(false);
+      const t = area(); if (t) t.focus();
+    };
+    rec.start();
+    listening = true;
+    const btn = doc.getElementById("ergit-mic");
+    if (btn) { btn.classList.add("on"); btn.innerHTML = STOP; btn.title = "Stop"; }
+    hint(true);
+  }
+
+  function setup() {
+    const b = box(); if (!b || !SR) return;
+    let btn = doc.getElementById("ergit-mic");
+    if (btn && btn.dataset.owner === owner) return;
+    if (btn) btn.remove();                       // a button left from an earlier page load
+    const send = b.querySelector('[data-testid="stChatInputSubmitButton"]');
+    btn = doc.createElement("button");
+    btn.id = "ergit-mic"; btn.type = "button"; btn.dataset.owner = owner;
+    btn.title = "Speak your question"; btn.setAttribute("aria-label", "Speak your question");
+    btn.innerHTML = MIC;
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      if (listening) stop(); else start("en-NG");
+    });
+    if (send && send.parentElement) send.parentElement.insertBefore(btn, send);
+    else b.appendChild(btn);
+  }
+
+  setup();
+  setInterval(setup, 800);
+})();
+</script>
+"""
+
+
+def live_dictation():
+    """Add the live voice-typing mic to the chat box."""
+    with st.container(key="dictation"):
+        if hasattr(st, "iframe"):
+            st.iframe(LIVE_DICTATION, height=1)
+        else:
+            components.html(LIVE_DICTATION, height=1)
 
 
 # --------------------------------------------------
@@ -2661,6 +2783,9 @@ if "turns" not in st.session_state:
 
 if "editing" not in st.session_state:
     st.session_state.editing = None
+
+if "voice_draft" not in st.session_state:
+    st.session_state.voice_draft = None
 
 if "chats" not in st.session_state:
     st.session_state.chats = []
