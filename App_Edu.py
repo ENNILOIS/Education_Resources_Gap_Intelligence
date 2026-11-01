@@ -595,7 +595,8 @@ Dashboard instructions:
   chart), use that type.
 - "standard": the UBE standard the values are compared with (35 for
   students per teacher, 35 for students per classroom, 30 for students
-  per toilet). Use null if the values are not ratios.
+  per toilet). For scores given as "times the standards", use 1. Use null
+  for anything else (learner counts, percentages).
 - Use only numbers that appear in the context. Values must be plain
   numbers, with no units or % signs.
 - If the answer has no numbers to compare, do not add a dashboard block.
@@ -931,9 +932,26 @@ def make_chart(question, answer_text, chat_model):
         return None
 
 
+def add_standard_line(chart):
+    """Always show the UBE standard line when the values are compared with it."""
+    if chart.get("standard"):
+        return chart
+    words = (str(chart.get("value_name", "")) + " " + str(chart.get("title", ""))).lower()
+    values = [d["value"] for d in chart["data"]]
+    if ("times" in words or "standard" in words or "gap score" in words) and values \
+            and 0.2 <= min(values) and max(values) <= 5:
+        chart["standard"] = 1.0                      # 1.0 = exactly at the standards
+    elif "per teacher" in words or "per classroom" in words:
+        chart["standard"] = 35.0
+    elif "per toilet" in words:
+        chart["standard"] = 30.0
+    return chart
+
+
 def choose_chart_type(question, chart):
     """Respect the user's choice of chart; otherwise keep the AI's choice,
     with a few safety checks."""
+    chart = add_standard_line(chart)
     question_lower = question.lower()
     for word, kind in REQUESTED_TYPES:
         if len(chart["data"]) > 1 and re.search(rf"\b{word}\b", question_lower):
@@ -2165,6 +2183,10 @@ LIVE_DICTATION = """
 
   let rec = null, listening = false, base = "";
 
+  // A recording left from an earlier page load: stop it and clear its note
+  if (P.__ergitRec) { try { P.__ergitRec.abort(); } catch (e) {} P.__ergitRec = null; }
+  const oldHint = doc.getElementById("ergit-mic-hint"); if (oldHint) oldHint.remove();
+
   function box() { return doc.querySelector('[data-testid="stChatInput"]'); }
   function area() { const b = box(); return b ? b.querySelector("textarea") : null; }
 
@@ -2216,6 +2238,7 @@ LIVE_DICTATION = """
       hint(false);
       const t = area(); if (t) t.focus();
     };
+    P.__ergitRec = rec;
     rec.start();
     listening = true;
     const btn = doc.getElementById("ergit-mic");
@@ -2239,6 +2262,13 @@ LIVE_DICTATION = """
     });
     if (send && send.parentElement) send.parentElement.insertBefore(btn, send);
     else b.appendChild(btn);
+
+    // Sending the question stops the listening, so no words land in the empty box
+    const ta = area();
+    if (ta) ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey && listening) stop();
+    });
+    if (send) send.addEventListener("click", function () { if (listening) stop(); });
   }
 
   setup();

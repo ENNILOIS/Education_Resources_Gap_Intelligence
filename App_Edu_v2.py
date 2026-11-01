@@ -8,6 +8,8 @@ import json
 import numpy as np
 import pandas as pd
 import altair as alt
+import pydeck as pdk
+from urllib.parse import quote_plus
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -345,6 +347,20 @@ box-shadow: 0 10px 30px rgba(15, 30, 74, 0.06); border-top: 4px solid var(--blue
 .way-ask {background: #F5F8FE; border: 1px solid var(--line); border-radius: 12px; padding: 0.45rem 0.8rem;
 font-size: 0.86rem; color: var(--ink); margin-top: 0.45rem;}
 .way-data {font-size: 0.75rem; color: var(--muted); margin-top: 0.9rem;}
+.dir-row {display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid #EEF2F9;}
+.dir-row:last-of-type {border-bottom: none;}
+.dir-name {flex: 1; font-size: 0.85rem; font-weight: 600; color: var(--ink); line-height: 1.3; min-width: 0;}
+.dir-sub {display: block; font-weight: 400; font-size: 0.74rem; color: var(--muted);}
+.dir-go {font-size: 0.78rem; font-weight: 600; color: var(--blue) !important; text-decoration: none !important;
+white-space: nowrap; background: #EEF4FF; border-radius: 999px; padding: 0.25rem 0.6rem;}
+.dir-go:hover {background: #DBEAFE;}
+.dir-note {font-size: 0.72rem !important; color: var(--muted) !important; margin: 0.5rem 0 0 0 !important;}
+.map-title {font-size: 0.85rem !important; color: var(--ink) !important; margin: 1rem 0 0.4rem 0 !important;}
+[data-testid="stBaseLinkButton-primary"] {background: var(--blue) !important; border: none !important; color: #FFFFFF !important; border-radius: 12px !important;}
+[data-testid="stBaseLinkButton-primary"]:hover {background: var(--navy) !important;}
+.map-pick {background: #F5F8FE; border: 1px solid var(--line); border-radius: 14px; padding: 0.7rem 0.9rem; margin: 0.6rem 0 0.5rem 0;}
+.map-pick-name {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; color: var(--ink);}
+.map-pick-sub {font-size: 0.8rem; color: var(--muted);}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -628,7 +644,8 @@ Dashboard instructions:
   chart), use that type.
 - "standard": the UBE standard the values are compared with (35 for
   students per teacher, 35 for students per classroom, 30 for students
-  per toilet). Use null if the values are not ratios.
+  per toilet). For scores given as "times the standards", use 1. Use null
+  for anything else (learner counts, percentages).
 - Use only numbers that appear in the context. Values must be plain
   numbers, with no units or % signs.
 - If the answer has no numbers to compare, do not add a dashboard block.
@@ -964,9 +981,26 @@ def make_chart(question, answer_text, chat_model):
         return None
 
 
+def add_standard_line(chart):
+    """Always show the UBE standard line when the values are compared with it."""
+    if chart.get("standard"):
+        return chart
+    words = (str(chart.get("value_name", "")) + " " + str(chart.get("title", ""))).lower()
+    values = [d["value"] for d in chart["data"]]
+    if ("times" in words or "standard" in words or "gap score" in words) and values \
+            and 0.2 <= min(values) and max(values) <= 5:
+        chart["standard"] = 1.0                      # 1.0 = exactly at the standards
+    elif "per teacher" in words or "per classroom" in words:
+        chart["standard"] = 35.0
+    elif "per toilet" in words:
+        chart["standard"] = 30.0
+    return chart
+
+
 def choose_chart_type(question, chart):
     """Respect the user's choice of chart; otherwise keep the AI's choice,
     with a few safety checks."""
+    chart = add_standard_line(chart)
     question_lower = question.lower()
     for word, kind in REQUESTED_TYPES:
         if len(chart["data"]) > 1 and re.search(rf"\b{word}\b", question_lower):
@@ -1288,7 +1322,7 @@ def show_assistant_message(message, index):
         html(f'<p class="understood">{ic("chat", "#5B6680", 13)} Understood as: {escape(understood)}</p>')
 
     if message.get("schools"):
-        show_school_dashboard(message)
+        show_school_dashboard(message, index)
         return
 
     if not chart:
@@ -1450,7 +1484,8 @@ Reply with ONE JSON object only:
   "level": "Primary" or "JSS" or "SSS" or "Secondary" (JSS or SSS) or null,
   "school_name": "a school the user named, or null",
   "sort_by": "teacher" or "classroom" or "toilet" or "overall",
-  "order": "best" (least crowded first) or "worst" (most crowded first),
+  "order": "best" (least crowded first) or "worst" (most crowded first;
+           use this for schools that are lacking, in need, or to support),
   "top_n": a number from 1 to 20 (default 10)}}
 
 "Smallest classes" means sort_by "classroom"; "enough teachers" means
@@ -1496,7 +1531,8 @@ def guess_school_filters(question):
     sort_by = next((k for k in UBE if k in q), "overall")
     if re.search(r"class ?size|smallest class|crowded class", q):
         sort_by = "classroom"
-    order = "worst" if re.search(r"\b(worst|most crowded|highest|over ?crowded)\b", q) else "best"
+    order = "worst" if re.search(r"\b(worst|most crowded|highest|over ?crowded|lacking|lack|need|needs|"
+                                 r"under pressure|empower|support|help|fund|poorest)\b", q) else "best"
     n = re.search(r"\b(top|best|first|worst|bottom|least)\s+(\d{1,2})\b", q) or re.search(r"\b(\d{1,2})\s+(?:public\s+)?schools\b", q)
     top = int(n.group(n.lastindex)) if n else 10
     return {"lga": match_lga(q), "place": None, "level": level, "school_name": None,
@@ -1613,8 +1649,11 @@ Write a short, friendly answer (3 to 6 sentences, plain English):
 - Say once that the school figures come from a 2012–2014 survey and may
   have changed.
 - If few schools were found, say the data for that area is thin.
-- End by suggesting the parent visits their top 3 to 5 schools and asks
-  about class sizes, teachers and travel time.
+- If the user is choosing a school for a child, end by suggesting they visit
+  their top 3 to 5 schools and ask about class sizes, teachers and travel time.
+- If the user wants to support, fund or "empower" schools, say these schools
+  showed the greatest pressure in the 2012-2014 survey, and suggest confirming
+  their current needs with the Lagos SUBEB office or the LGEA before acting.
 Use only the figures above. Do not invent schools or numbers.
 """)
 
@@ -1637,18 +1676,114 @@ def school_rows_text(rows):
 def school_records(rows):
     keep = ["School_Name", "LGA", "Community", "Level", "Students", "Teachers", "Classrooms",
             "Toilets", "Students_per_Teacher", "Students_per_Classroom", "Students_per_Toilet",
-            "Overall_Label", "Survey_Year", "Latitude", "Longitude"]
+            "Overall_Label", "Pressure_Score", "Survey_Year", "Latitude", "Longitude"]
     if "Distance_km" in rows:
         keep.append("Distance_km")
     return json.loads(rows[keep].to_json(orient="records"))
 
 
-def show_school_dashboard(message):
+def directions_url(row):
+    """Google Maps directions from wherever the user is to the school.
+    On a phone this opens the Maps app with the route."""
+    lat, lon = getattr(row, "Latitude", None), getattr(row, "Longitude", None)
+    if lat is None or pd.isna(lat) or pd.isna(lon):
+        place = quote_plus(f"{row.School_Name}, {row.LGA}, Lagos")
+        return f"https://www.google.com/maps/search/?api=1&query={place}"
+    return f"https://www.google.com/maps/dir/?api=1&destination={lat:.6f},{lon:.6f}&travelmode=driving"
+
+
+def directions_list(schools):
+    """A short list of the schools, each with a one-tap directions link."""
+    rows = ""
+    for i, r in enumerate(schools.head(8).itertuples(), 1):
+        colour = LABEL_COLOURS.get(r.Overall_Label, "#94A3B8")
+        rows += (f'<div class="dir-row"><span class="lb-rank">{i}</span>'
+                 f'<span class="dir-name"><span style="color:{colour};">●</span> {escape(r.School_Name)}'
+                 f'<span class="dir-sub">{escape(str(r.Community or r.LGA))}</span></span>'
+                 f'<a class="dir-go" href="{directions_url(r)}" target="_blank" rel="noopener">'
+                 f'{ic("pin", "#2563EB", 14)} Directions</a></div>')
+    html(f'<div class="lb"><div class="lb-title">Get directions</div>{rows}'
+         f'<p class="dir-note">Opens Google Maps with the route from where you are.</p></div>')
+
+
+def hex_to_rgb(colour):
+    colour = colour.lstrip("#")
+    return [int(colour[i:i + 2], 16) for i in (0, 2, 4)] + [230]
+
+
+def school_map(schools, index):
+    """A large map: tap a school to see its details and get directions.
+    Use the expand icon (top right of the map) for full screen."""
+    points = schools.dropna(subset=["Latitude", "Longitude"]).copy()
+    if points.empty:
+        return
+    points["colour"] = points["Overall_Label"].map(LABEL_COLOURS).fillna("#94A3B8").map(hex_to_rgb)
+    points["label_short"] = points["Overall_Label"].str.split(" –").str[0]
+    for c in ["Students_per_Teacher", "Students_per_Classroom", "Students_per_Toilet"]:
+        points[c + "_txt"] = points[c].map(lambda v: "n/a" if pd.isna(v) else f"{v:.1f}")
+    points = points.reset_index(drop=True)
+
+    spread = max(points["Latitude"].max() - points["Latitude"].min(),
+                 points["Longitude"].max() - points["Longitude"].min())
+    zoom = 14 if spread < 0.01 else 13 if spread < 0.04 else 12 if spread < 0.1 else 11 if spread < 0.25 else 10
+
+    map_data = points[["School_Name", "Latitude", "Longitude", "colour", "label_short",
+                       "Students_per_Teacher_txt", "Students_per_Classroom_txt",
+                       "Students_per_Toilet_txt"]]          # no empty values: the map needs clean data
+    layer = pdk.Layer(
+        "ScatterplotLayer", data=map_data, id="schools",
+        get_position=["Longitude", "Latitude"], get_fill_color="colour",
+        get_line_color=[255, 255, 255], line_width_min_pixels=2, stroked=True,
+        get_radius=90, radius_min_pixels=8, radius_max_pixels=18, pickable=True,
+    )
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=pdk.ViewState(latitude=float(points["Latitude"].mean()),
+                                         longitude=float(points["Longitude"].mean()),
+                                         zoom=zoom),
+        tooltip={"html": "<b>{School_Name}</b><br/>{label_short}<br/>"
+                         "{Students_per_Classroom_txt} per classroom · "
+                         "{Students_per_Teacher_txt} per teacher · {Students_per_Toilet_txt} per toilet",
+                 "style": {"backgroundColor": "#0F1E4A", "color": "white",
+                           "fontFamily": "Inter, sans-serif", "fontSize": "12px",
+                           "borderRadius": "8px", "padding": "8px 10px"}},
+    )
+    html('<p class="map-title">' + ic("pin", "#1E3A8A", 15) +
+         ' <b>Map of these schools.</b> Tap a dot to see the school and get directions; '
+         'use the expand icon on the map for full screen.</p>')
+    state = st.pydeck_chart(deck, height=420, on_select="rerun",
+                            selection_mode="single-object", key=f"school_map_{index}")
+    html('<p class="map-key">'
+         + " ".join(f'<span style="color:{c};">●</span> {k.split(" –")[0]}'
+                    for k, c in LABEL_COLOURS.items()) + "</p>")
+
+    # The school the user tapped on the map
+    picked = None
+    try:
+        objects = state.selection.get("objects", {}).get("schools", [])
+        picked = objects[0] if objects else None
+    except Exception:
+        picked = None
+    if picked:
+        name = picked.get("School_Name", "")
+        row = points[points["School_Name"] == name]
+        if not row.empty:
+            r = next(row.itertuples())
+            html(f'<div class="map-pick"><div class="map-pick-name">{escape(name)}</div>'
+                 f'<div class="map-pick-sub">{escape(str(r.Community or ""))}, {escape(r.LGA)} · '
+                 f'{escape(r.Level)} · {escape(r.label_short)}</div>'
+                 f'<div class="map-pick-sub">{r.Students_per_Classroom_txt} per classroom · '
+                 f'{r.Students_per_Teacher_txt} per teacher · {r.Students_per_Toilet_txt} per toilet</div></div>')
+            st.link_button("Get directions to this school", directions_url(r),
+                           icon=":material/directions:", type="primary")
+
+
+def show_school_dashboard(message, index=0):
     """Answer + school dashboard: number cards, a map, a chart and a table."""
     schools = pd.DataFrame(message["schools"])
     for c in ["Students", "Teachers", "Classrooms", "Toilets", "Students_per_Teacher",
               "Students_per_Classroom", "Students_per_Toilet", "Latitude", "Longitude",
-              "Distance_km", "Survey_Year"]:
+              "Distance_km", "Survey_Year", "Pressure_Score"]:
         if c in schools:
             schools[c] = pd.to_numeric(schools[c], errors="coerce")
     meta = message.get("school_meta", {})
@@ -1684,13 +1819,22 @@ def show_school_dashboard(message):
 
     left, right = st.columns([1.2, 1], gap="medium")
     with left:
-        if f.get("sort_by") in UBE and schools[sort_col].notna().sum() >= 2:
+        if f.get("sort_by") not in UBE and "Pressure_Score" not in schools:
+            schools["Pressure_Score"] = (schools["Students_per_Teacher"] / 35 +
+                                         schools["Students_per_Classroom"] / 35 +
+                                         schools["Students_per_Toilet"] / 30) / 3
+        if f.get("sort_by") not in UBE:
+            # Overall: average of the three ratios ÷ their standards; 1.0 = exactly at the standards
+            sort_col, standard, sort_words = ("Pressure_Score", 1.0,
+                                              "times the UBE standards (average)")
+        if schools[sort_col].notna().sum() >= 1:
             chart = {"type": "bar", "title": sort_words, "label_name": "School",
-                     "value_name": sort_words.capitalize(), "standard": standard,
+                     "value_name": sort_words[0].upper() + sort_words[1:], "standard": standard,
                      "ascending": f.get("order") != "worst",
                      "data": [{"label": r.School_Name[:38], "value": float(getattr(r, sort_col))}
                               for r in schools.itertuples() if not pd.isna(getattr(r, sort_col))]}
             draw_chart(chart)
+            html('<p class="map-key">Dotted line = the UBE standard. Bars past it are above the standard.</p>')
         else:
             counts = schools["Overall_Label"].value_counts()
             chart = {"type": "pie", "title": "Overall labels", "label_name": "Label",
@@ -1701,14 +1845,9 @@ def show_school_dashboard(message):
             else:
                 st.caption("All schools shown have the same overall label.")
     with right:
-        points = schools.dropna(subset=["Latitude", "Longitude"]).copy()
-        if not points.empty:
-            points["colour"] = points["Overall_Label"].map(LABEL_COLOURS).fillna("#94A3B8")
-            st.map(points, latitude="Latitude", longitude="Longitude", color="colour", size=60,
-                   zoom=12 if len(points) > 1 else 14)
-            html('<p class="map-key">'
-                 + " ".join(f'<span style="color:{c};">●</span> {k.split(" –")[0]}'
-                            for k, c in LABEL_COLOURS.items()) + "</p>")
+        directions_list(schools)
+
+    school_map(schools, index)
 
     short = {"Within UBE benchmark": "Within benchmark",
              "Above UBE benchmark – check capacity": "Above – check capacity",
@@ -1719,7 +1858,9 @@ def show_school_dashboard(message):
         "School_Name": "School", "Students_per_Teacher": "Per teacher",
         "Students_per_Classroom": "Per classroom", "Students_per_Toilet": "Per toilet",
         "Overall_Label": "Label", "Distance_km": "Distance (km, est.)", "Survey_Year": "Survey"})
-    cols = ["School", "Community", "Level", "Per teacher", "Per classroom", "Per toilet", "Label"]
+    table["Directions"] = [directions_url(r) for r in schools.itertuples()]
+    cols = ["School", "Community", "Level", "Per teacher", "Per classroom", "Per toilet", "Label",
+            "Directions"]
     if "Distance (km, est.)" in table:
         cols.insert(3, "Distance (km, est.)")
     st.dataframe(
@@ -1730,6 +1871,7 @@ def show_school_dashboard(message):
             "Per classroom": st.column_config.NumberColumn(format="%.1f"),
             "Per toilet": st.column_config.NumberColumn(format="%.1f"),
             "Label": st.column_config.TextColumn(width="medium"),
+            "Directions": st.column_config.LinkColumn(display_text="Get directions"),
         })
     html(f'<p class="school-note">{SCHOOL_NOTE} UBE standards: 35 per teacher, 35 per classroom, '
          '30 per toilet. Labels describe crowding and facilities, not teaching quality. '
@@ -2673,6 +2815,10 @@ LIVE_DICTATION = """
 
   let rec = null, listening = false, base = "";
 
+  // A recording left from an earlier page load: stop it and clear its note
+  if (P.__ergitRec) { try { P.__ergitRec.abort(); } catch (e) {} P.__ergitRec = null; }
+  const oldHint = doc.getElementById("ergit-mic-hint"); if (oldHint) oldHint.remove();
+
   function box() { return doc.querySelector('[data-testid="stChatInput"]'); }
   function area() { const b = box(); return b ? b.querySelector("textarea") : null; }
 
@@ -2724,6 +2870,7 @@ LIVE_DICTATION = """
       hint(false);
       const t = area(); if (t) t.focus();
     };
+    P.__ergitRec = rec;
     rec.start();
     listening = true;
     const btn = doc.getElementById("ergit-mic");
@@ -2747,6 +2894,13 @@ LIVE_DICTATION = """
     });
     if (send && send.parentElement) send.parentElement.insertBefore(btn, send);
     else b.appendChild(btn);
+
+    // Sending the question stops the listening, so no words land in the empty box
+    const ta = area();
+    if (ta) ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey && listening) stop();
+    });
+    if (send) send.addEventListener("click", function () { if (listening) stop(); });
   }
 
   setup();
