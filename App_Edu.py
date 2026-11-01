@@ -538,7 +538,14 @@ Tone:
   ask the user to choose or clarify when you can already answer; if they
   say "yes" or "do that" to your earlier suggestion, do it right away.
 - The context contains full rankings of all 20 LGAs ("Ranking of LGAs by
-  ..."), state summaries and averages by school level: use them.
+  ..."), state summaries and averages by school level: use them. The
+  resource-gap ranking text lists all 20 LGAs with scores out of 100; use
+  it when the user asks for the full overall ranking.
+- If the user mentions a goal such as empowering, supporting or funding,
+  answer with the data that serves it (which LGAs lack the most, by how
+  much, and in which resource). Do not write general policy advice, and
+  never invent thresholds, budgets or percentages that are not in the
+  context.
 - End with one short, friendly suggestion of what they could ask next.
 - If the user only greets you, says thanks or chats, reply warmly in one
   or two sentences and suggest a question they could ask.
@@ -644,8 +651,12 @@ RANKING_PATTERN = re.compile(
 # Questions about the overall resource-gap score (all three resources together)
 OVERALL_WORDS = [
     "overall", "resource gap", "resource-gap", "gap score", "biggest gap",
-    "greatest gap", "most lacking overall", "least lacking overall"
+    "greatest gap", "most lacking", "least lacking", "lacking the most",
+    "lack the most", "lacking most", "lacking resources", "lack resources",
+    "need the most", "needs the most", "most in need", "empower", "support",
+    "fund", "resources"
 ]
+RESOURCE_WORDS = ["teacher", "classroom", "toilet", "learner", "student", "enrol"]
 
 # Which documents are in the knowledge base. Filled in when the app starts,
 # from the database itself, so moving or renaming the files does not break it.
@@ -750,8 +761,10 @@ def retrieve_context(question, vector_db, general_retriever):
         if added and source_name not in sources:
             sources.append(source_name)
 
-    is_overall = any(w in question_lower for w in OVERALL_WORDS)
     is_ranking = bool(RANKING_PATTERN.search(question_lower))
+    # "Which LGAs lack the most?" with no particular resource = the overall ranking
+    is_overall = any(w in question_lower for w in OVERALL_WORDS) or (
+        is_ranking and not any(w in question_lower for w in RESOURCE_WORDS))
 
     # 1. Overall resource-gap ranking (the ranking text file + PDF summary)
     if is_overall:
@@ -1414,6 +1427,10 @@ Reply with ONE JSON object only, no other words:
   Replace words like "it", "they", "there", "that LGA", "the first one",
   "the second LGA you mentioned" with the exact names from the conversation.
   Keep any chart type the user asked for. If it already makes sense, copy it.
+  Keep the user's intent: when they state a goal ("I want to empower /
+  support / fund the LGAs or schools lacking the most"), the question is
+  WHICH ones lack the most, e.g. "Which LGAs are lacking resources the
+  most?". Never turn it into a question about how to do something.
 """)
 
 
