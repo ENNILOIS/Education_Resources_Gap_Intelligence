@@ -1528,6 +1528,10 @@ SHORT_LABELS = {"Within UBE benchmark": "Within benchmark",
 @st.cache_data(show_spinner=False)
 def load_schools(path, modified):
     df = pd.read_csv(path)
+    # Some names in the survey contain line breaks or double spaces: tidy every text column
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].astype("string").str.replace(r"\s+", " ", regex=True).str.strip()
+        df[col] = df[col].astype(object).where(df[col].notna(), None)
     df["_name"] = df["School_Name"].str.lower()
     df["_place"] = (df["Community"].fillna("") + " " + df["Ward"].fillna("")).str.lower()
     return df
@@ -1746,8 +1750,10 @@ figures, the survey date and advice right after your words, so do NOT list
 the schools, do NOT repeat their figures and do NOT add closing advice.
 In the opening:
 - Say what was found, e.g. "Here are 10 public schools in Ikorodu, with the
-  schools within the UBE benchmark first." Describe the order as given in
-  "Search used". If there is a NOTE in "Search used", mention it.
+  schools within the UBE benchmark first." Describe the order exactly as
+  given in "Search used", once, and add nothing else about the sorting (do
+  not say "the first few are the least crowded"). If there is a NOTE in
+  "Search used", mention it.
 - If the user asked about one school, say in one sentence how it compares
   with the standards, using its label exactly as given.
 - Never call a school good or bad: the figures measure crowding and
