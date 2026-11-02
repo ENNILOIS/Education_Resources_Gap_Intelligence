@@ -1532,6 +1532,9 @@ def load_schools(path, modified):
     for col in df.select_dtypes(include="object").columns:
         df[col] = df[col].astype("string").str.replace(r"\s+", " ", regex=True).str.strip()
         df[col] = df[col].astype(object).where(df[col].notna(), None)
+    # Round the ratios once, so the list, chart, map and table always show the same figure
+    for col in ["Students_per_Teacher", "Students_per_Classroom", "Students_per_Toilet"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").round(1)
     df["_name"] = df["School_Name"].str.lower()
     df["_place"] = (df["Community"].fillna("") + " " + df["Ward"].fillna("")).str.lower()
     return df
