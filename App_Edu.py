@@ -947,9 +947,18 @@ def make_chart(question, answer_text, chat_model):
 
 def add_standard_line(chart):
     """Always show the UBE standard line when the values are compared with it."""
+    words = (str(chart.get("value_name", "")) + " " + str(chart.get("title", ""))).lower()
+    # A score out of 100, a count of learners or a percentage has no UBE line.
+    # The AI sometimes copies the example's "standard": 30, so remove it here.
+    labels = " ".join(str(d.get("label", "")) for d in chart.get("data", [])).lower()
+    is_ratio = re.search(r"\bper (teacher|classroom|toilet)|ratio|times", words + " " + labels)
+    if not is_ratio or re.search(r"score|index|out of 100|0-100|percent|%", words):
+        chart.pop("standard", None)
+        for d in chart.get("data", []):
+            d.pop("standard", None)
+        return chart
     if chart.get("standard"):
         return chart
-    words = (str(chart.get("value_name", "")) + " " + str(chart.get("title", ""))).lower()
     values = [d["value"] for d in chart["data"]]
     if ("times" in words or "standard" in words or "gap score" in words) and values \
             and 0.2 <= min(values) and max(values) <= 5:
