@@ -2317,7 +2317,7 @@ linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
 linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
 background-size: 40px 40px;
 }
-canvas {position: absolute; inset: 0;}
+canvas {position: absolute; top: 0; bottom: 0; right: 0;}   /* left is set by the script */
 .text {
 position: absolute; left: 6%; top: 50%; transform: translateY(-50%);
 max-width: 520px; color: #FFFFFF; z-index: 2;
@@ -2338,7 +2338,7 @@ p {font-size: 17px; line-height: 1.6; color: #D6E2FF; margin: 0;}
 .mini b {display: block; font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; font-size: 26px; color: #FFFFFF;}
 .mini span {font-size: 12.5px; color: #B8C8F0;}
 @media (max-width: 760px) {
-h1 {font-size: 32px;} .text {left: 7%; right: 7%;} canvas {opacity: 0.35;}
+h1 {font-size: 32px;} .text {left: 7%; right: 7%;}
 }
 </style>
 </head>
@@ -2372,6 +2372,8 @@ camera.position.set(0, 0.6, 12);
 scene.add(new THREE.AmbientLight(0xffffff, 0.75));
 const sun = new THREE.DirectionalLight(0xffffff, 0.9);
 sun.position.set(5, 8, 6); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xbfd4ff, 0.45);
+fill.position.set(-4, -2, 6); scene.add(fill);
 const warm = new THREE.PointLight(0xfacc15, 0.8, 30);
 warm.position.set(6, 2, 5); scene.add(warm);
 
@@ -2390,18 +2392,86 @@ function book(color, w, h, d) {
   return g;
 }
 
+const shiny = (c, m, r) => new THREE.MeshStandardMaterial({color: c, metalness: m, roughness: r});
+
+// A real, sharpened hexagonal pencil: painted body, scalloped paint edge,
+// bare wood cone, shiny graphite point, ridged metal ferrule and an eraser.
 function pencil(color) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.4, 6), mat(color));
-  const wood = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.36, 6), mat(0xF2C9A0));
-  wood.position.y = -1.38;
-  const lead = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.13, 6), mat(0x1F2937));
-  lead.position.y = -1.6;
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.16, 12), mat(0xC0C7D6));
-  band.position.y = 1.2;
-  const eraser = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 12), mat(0xF97066));
-  eraser.position.y = 1.38;
-  g.add(body, wood, lead, band, eraser);
+  const R = 0.095, L = 2.3;                                  // slim, like a real pencil
+  const paint = new THREE.MeshStandardMaterial({color: color, roughness: 0.35, metalness: 0.05, flatShading: true});
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L, 6), paint);
+  // the painted corners run a little way down the cone (the wavy edge you see on real pencils)
+  const scallop = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.8, 0.07, 6), paint);
+  scallop.position.y = -L / 2 - 0.035;
+  // sharpened wood: a smooth cone of pale cedar
+  const woodLen = 0.42, leadR = 0.03;
+  const wood = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.8, leadR, woodLen, 32),
+                              new THREE.MeshStandardMaterial({color: 0xE9C29A, roughness: 0.85}));
+  wood.position.y = -L / 2 - 0.07 - woodLen / 2;
+  // graphite point, continuing the same slope, slightly shiny
+  const lead = new THREE.Mesh(new THREE.ConeGeometry(leadR, 0.14, 32), shiny(0x2B2F36, 0.6, 0.3));
+  lead.rotation.x = Math.PI;
+  lead.position.y = -L / 2 - 0.07 - woodLen - 0.07;
+  // ridged metal ferrule
+  const ferrule = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.04, R * 1.04, 0.22, 32), shiny(0xC9CED8, 0.9, 0.25));
+  ferrule.position.y = L / 2 + 0.11;
+  for (let k = 0; k < 3; k++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 1.05, 0.008, 6, 32), shiny(0xA7AEBB, 0.9, 0.3));
+    ring.rotation.x = Math.PI / 2; ring.position.y = L / 2 + 0.04 + k * 0.07;
+    g.add(ring);
+  }
+  // pink eraser with a rounded end
+  const eraser = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.16, 32),
+                                new THREE.MeshStandardMaterial({color: 0xF4A3A8, roughness: 0.9}));
+  eraser.position.y = L / 2 + 0.3;
+  const eraserTop = new THREE.Mesh(new THREE.SphereGeometry(R, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+                                   new THREE.MeshStandardMaterial({color: 0xF4A3A8, roughness: 0.9}));
+  eraserTop.scale.y = 0.35; eraserTop.position.y = L / 2 + 0.38;
+  g.add(body, scallop, wood, lead, ferrule, eraser, eraserTop);
+  return g;
+}
+
+// A ballpoint pen: glossy barrel, rubber grip, metal cone and ball, clip on the cap end.
+function pen(color) {
+  const g = new THREE.Group();
+  const R = 0.085;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 1.9, 32), shiny(color, 0.25, 0.2));
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.06, R * 0.95, 0.5, 32),
+                              new THREE.MeshStandardMaterial({color: 0x1F2430, roughness: 0.95}));
+  grip.position.y = -1.2;
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.95, 0.018, 0.26, 32), shiny(0xD5DAE3, 0.95, 0.2));
+  cone.position.y = -1.58;
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 16), shiny(0xB8BEC9, 1, 0.15));
+  ball.position.y = -1.72;
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.08, R * 1.08, 0.5, 32), shiny(color, 0.25, 0.2));
+  top.position.y = 1.0;
+  const button = new THREE.Mesh(new THREE.SphereGeometry(R * 1.05, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+                                shiny(0xD5DAE3, 0.95, 0.2));
+  button.scale.y = 0.6; button.position.y = 1.25;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.1, R * 1.1, 0.05, 32), shiny(0xD5DAE3, 0.95, 0.2));
+  band.position.y = 0.73;
+  const clip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.75, 0.035), shiny(0xD5DAE3, 0.95, 0.2));
+  clip.position.set(0, 0.85, R * 1.35);
+  const clipEnd = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 12), shiny(0xD5DAE3, 0.95, 0.2));
+  clipEnd.position.set(0, 0.48, R * 1.25);
+  g.add(barrel, grip, cone, ball, top, button, band, clip, clipEnd);
+  return g;
+}
+
+// A wooden ruler with tick marks
+function ruler() {
+  const g = new THREE.Group();
+  const board = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.04, 0.42),
+                               new THREE.MeshStandardMaterial({color: 0xE2A93B, roughness: 0.6}));
+  g.add(board);
+  const tickMat = new THREE.MeshStandardMaterial({color: 0x3A2F1C});
+  for (let k = 0; k <= 24; k++) {
+    const long = k % 4 === 0;
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.01, long ? 0.16 : 0.08), tickMat);
+    t.position.set(-1.2 + k * 0.1, 0.026, -0.21 + (long ? 0.08 : 0.04));
+    g.add(t);
+  }
   return g;
 }
 
@@ -2442,17 +2512,26 @@ for (let i = 0; i < 4; i++) {
 const cap1 = cap(); cap1.position.set(6.6, 2.4, -1); group.add(cap1);
 floaters.push({o: cap1, base: 2.4, speed: 0.9, spin: 0.35});
 
-const p1 = pencil(0xFACC15); p1.position.set(2.0, 1.7, 1); p1.rotation.set(0.3, 0, -0.9); group.add(p1);
-floaters.push({o: p1, base: 1.7, speed: 1.2, spin: 0.0});
+const p1 = pencil(0xFACC15); p1.position.set(3.0, 1.9, 1); p1.rotation.set(0.3, 0, -0.75); group.add(p1);
+floaters.push({o: p1, base: 1.9, speed: 1.2, spin: 0.0});
 
-const p2 = pencil(0x2563EB); p2.position.set(7.4, -0.6, 0.5); p2.rotation.set(-0.4, 0, 0.6); group.add(p2);
-floaters.push({o: p2, base: -0.6, speed: 1.0, spin: 0.0});
+const p2 = pencil(0x2563EB); p2.position.set(8.1, -0.5, 0.5); p2.rotation.set(-0.4, 0, 0.6); group.add(p2);
+floaters.push({o: p2, base: -0.5, speed: 1.0, spin: 0.0});
 
-const fb = book(0xF97066, 1.4, 0.26, 1.0); fb.position.set(2.4, -0.4, 2); fb.rotation.set(0.6, 0.4, 0.3); group.add(fb);
-floaters.push({o: fb, base: -0.4, speed: 0.8, spin: 0.4});
+const fb = book(0xF97066, 1.4, 0.26, 1.0); fb.position.set(3.0, -0.3, 2); fb.rotation.set(0.6, 0.4, 0.3); group.add(fb);
+floaters.push({o: fb, base: -0.3, speed: 0.8, spin: 0.4});
 
-const fb2 = book(0x8B5CF6, 1.2, 0.22, 0.9); fb2.position.set(5.9, 0.2, 2.2); fb2.rotation.set(-0.3, 0.9, -0.2); group.add(fb2);
-floaters.push({o: fb2, base: 0.2, speed: 1.1, spin: -0.3});
+const fb2 = book(0x8B5CF6, 1.2, 0.22, 0.9); fb2.position.set(5.6, 0.9, 2.2); fb2.rotation.set(-0.3, 0.9, -0.2); group.add(fb2);
+floaters.push({o: fb2, base: 0.9, speed: 1.1, spin: -0.3});
+
+const pn = pen(0xDC2626); pn.scale.setScalar(1.25); pn.position.set(3.4, -1.85, 1.8); pn.rotation.set(0.35, 0.2, 1.1); group.add(pn);
+floaters.push({o: pn, base: -1.85, speed: 0.95, spin: 0.0});
+
+const rl = ruler(); rl.position.set(6.4, -2.0, 0.8); rl.rotation.set(1.0, 0.2, 0.35); group.add(rl);
+floaters.push({o: rl, base: -2.0, speed: 0.7, spin: 0.0});
+
+const fb3 = book(0x10B981, 1.0, 0.2, 0.75); fb3.position.set(4.7, 3.0, -1.6); fb3.rotation.set(0.5, -0.6, 0.2); group.add(fb3);
+floaters.push({o: fb3, base: 3.0, speed: 1.05, spin: 0.25});
 
 // Small glowing particles (ideas)
 const pts = new THREE.BufferGeometry();
@@ -2472,11 +2551,22 @@ window.addEventListener('mousemove', e => {
   my = (e.clientY / window.innerHeight - 0.5);
 });
 
+// The 3D objects live only in the empty space to the RIGHT of the text,
+// so they never cover the words. On a phone there is no room: hide them.
+const textBox = document.querySelector('.text');
 function resize() {
   const w = canvas.parentElement.clientWidth, h = canvas.parentElement.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.position.x = w < 760 ? 3.2 : 0;
+  const textRight = textBox.getBoundingClientRect().right
+                    - canvas.parentElement.getBoundingClientRect().left;
+  const free = w - textRight - 24;
+  if (w < 760 || free < 220) { canvas.style.display = 'none'; return; }
+  canvas.style.display = 'block';
+  canvas.style.left = (w - free) + 'px';
+  canvas.style.width = free + 'px';
+  renderer.setSize(free, h, false);
+  camera.aspect = free / h;
+  // centre on the objects and step back far enough to fit them all
+  camera.position.set(5.6, 0.4, Math.max(12, 4.6 / (Math.tan(20 * Math.PI / 180) * camera.aspect)));
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize); resize();
