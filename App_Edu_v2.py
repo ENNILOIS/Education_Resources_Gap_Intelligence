@@ -33,7 +33,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 st.set_page_config(
     page_title="ERGIT | Education Resource-Gap Intelligence Tool",
-    page_icon="🎓",
+    page_icon=":material/school:",
     layout="wide"
 )
 
@@ -432,7 +432,8 @@ border-radius: 14px; padding: 1rem 1.1rem;
 .block-container {padding-left: 0.9rem !important; padding-right: 0.9rem !important; padding-top: 0.8rem !important;}
 .brand-sub {display: none;}
 .brand-name {font-size: 1.2rem;}
-.pill {font-size: 0.75rem; padding: 0.3rem 0.7rem;}
+.pill {display: none;}          /* too long for a phone; the logo is enough */
+.topbar {justify-content: flex-end; margin-bottom: 0.8rem;}
 .steps {grid-template-columns: 1fr;}
 .section-title {font-size: 1.35rem;}
 .lead {font-size: 0.95rem;}
@@ -634,7 +635,7 @@ Dashboard instructions:
   dashboard block at the very end, in exactly this format:
 
 <chart>
-{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
+{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": null, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
 </chart>
 
 - Choose the "type" that best fits the question:
@@ -655,6 +656,8 @@ Dashboard instructions:
   for anything else (learner counts, percentages).
 - Use only numbers that appear in the context. Values must be plain
   numbers, with no units or % signs.
+- Put only ONE kind of number in a chart: never mix a resource-gap score
+  with students per teacher, or learners with ratios.
 - If the answer has no numbers to compare, do not add a dashboard block.
 - Never mention the dashboard block in the written answer.
 
@@ -965,7 +968,7 @@ chart_prompt = ChatPromptTemplate.from_template("""
 Turn the figures in this answer into dashboard data.
 Reply with ONE JSON object only, no other words, in this format:
 
-{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
+{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": null, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
 
 Choose "type": "bar" (ranking 7 or more items), "lollipop" (short ranking),
 "column" (2 to 6 items such as school levels), "pie" (shares of a total,
@@ -974,6 +977,7 @@ school level against the UBE standards; give each item its own
 "standard", e.g. {{"label": "Students per toilet", "value": 54.1, "standard": 30}}).
 "standard" is 35 for students per teacher, 35 for students per classroom,
 30 for students per toilet, or null. Use only numbers from the answer.
+Put only ONE kind of number in the chart (never a score next to ratios).
 If the answer gives one figure and its standard, use "compare" with one item.
 If the answer has no figures that can be compared, reply: {{}}
 
@@ -994,8 +998,47 @@ def make_chart(question, answer_text, chat_model):
         return None
 
 
+def chart_is_grounded(chart, source_text):
+    """Keep a chart only if its numbers really appear in the documents or answer."""
+    found = set()
+    for n in re.findall(r"\d[\d,]*\.?\d*", source_text):
+        try:
+            found.add(round(float(n.replace(",", "")), 1))
+        except ValueError:
+            pass
+    values = [round(float(d["value"]), 1) for d in chart.get("data", [])]
+    if not values:
+        return False
+    hits = sum(1 for v in values if v in found or round(v) in found)
+    return hits / len(values) >= 0.6
+
+
 def add_standard_line(chart):
     """Always show the UBE standard line when the values are compared with it."""
+    # Never mix units in one chart (e.g. a score of 100 next to 62.6 students per
+    # toilet). Keep the per-teacher / classroom / toilet bars and compare each
+    # with its own UBE standard.
+    def ratio_standard(label):
+        t = str(label).lower()
+        if not re.search(r"\bper\b|ratio", t):
+            return None
+        if "teacher" in t and "female" not in t:
+            return 35.0
+        if "classroom" in t:
+            return 35.0
+        if "toilet" in t:
+            return 30.0
+        return None
+    data = chart.get("data", [])
+    ratio_items = [d for d in data if ratio_standard(d.get("label")) and d.get("value", 0) > 5]
+    if len(ratio_items) >= 2 or (ratio_items and len(ratio_items) < len(data)):
+        for d in ratio_items:
+            d["standard"] = ratio_standard(d["label"])
+        chart["data"] = ratio_items
+        chart["type"] = "compare"
+        chart["value_name"] = "Students per resource"
+        chart.pop("standard", None)
+        return chart
     words = (str(chart.get("value_name", "")) + " " + str(chart.get("title", ""))).lower()
     # A score out of 100, a count of learners or a percentage has no UBE line.
     # The AI sometimes copies the example's "standard": 30, so remove it here.
@@ -1063,16 +1106,16 @@ def tooltip_for(chart):
             alt.Tooltip("value:Q", title=chart.get("value_name", "Value"), format=",.2f")]
 
 
-def status_colour(df, standard):
-    # A school chart can give each bar its own status (from the school's label)
+def status_colour(df, standard, scale=None):
+    # A school chart gives each bar its own status (from the school's label)
     by_value = df["value"].apply(
         lambda v: "Above standard" if v > standard else "Within standard"
     )
     df["status"] = df["status"].fillna(by_value) if "status" in df else by_value
+    domain, colours = scale or (["Above standard", "Within standard"], ["#F97066", "#10B981"])
     return alt.Color(
         "status:N", title=None,
-        scale=alt.Scale(domain=["Above standard", "Within standard"],
-                        range=["#F97066", "#10B981"]),
+        scale=alt.Scale(domain=domain, range=colours),
         legend=alt.Legend(orient="top")
     )
 
@@ -1083,7 +1126,8 @@ def draw_chart(chart):
     standard = chart.get("standard")
     value_name = chart.get("value_name", "Value")
     tooltip = tooltip_for(chart)
-    order = df.sort_values("value", ascending=bool(chart.get("ascending")))["label"].tolist()
+    order = (df["label"].tolist() if chart.get("keep_order") else
+             df.sort_values("value", ascending=bool(chart.get("ascending")))["label"].tolist())
 
     if kind == "pie":
         total = df["value"].sum()
@@ -1157,7 +1201,7 @@ def draw_chart(chart):
         chart_obj = (bars + labels).properties(height=320)
 
     elif kind == "column":
-        colour = status_colour(df, standard) if standard else alt.Color(
+        colour = status_colour(df, standard, chart.get("status_scale")) if standard else alt.Color(
             "label:N", legend=None, sort=order, scale=alt.Scale(range=PALETTE))
         bars = alt.Chart(df).mark_bar(cornerRadiusEnd=8, width={"band": 0.6}).encode(
             x=alt.X("label:N", title=None, sort=order,
@@ -1190,7 +1234,7 @@ def draw_chart(chart):
         chart_obj = (stems + heads + labels).properties(height={"step": 34})
 
     else:  # horizontal ranking bar
-        colour = status_colour(df, standard) if standard else alt.Color(
+        colour = status_colour(df, standard, chart.get("status_scale")) if standard else alt.Color(
             "value:Q", legend=None, scale=alt.Scale(range=["#93C5FD", "#1E3A8A"]))
         bars = alt.Chart(df).mark_bar(cornerRadiusEnd=7, height={"band": 0.7}).encode(
             x=alt.X("value:Q", title=value_name,
@@ -1261,15 +1305,15 @@ def kpi_tiles(chart):
         above = int((df["gap"] > 0).sum())
         tiles = [
             tile("Above standard", f"{above}/{len(df)}", "measures", "#FEE2E2", "alert"),
-            tile("Biggest gap", f"{worst['gap']:+,.1f}", worst["label"], "#FEF3C7", "ruler"),
+            tile("Biggest gap", f"{worst['gap']:+,.1f}", escape(str(worst["label"])), "#FEF3C7", "ruler"),
             tile("Worst value", fmt(worst["value"]), f"Standard: {fmt(worst['std'])}", "#DBEAFE", "up"),
             tile("Measures", str(len(df)), "compared", "#EDE9FE", "target"),
         ]
     else:
         standard = chart.get("standard")
         tiles = [
-            tile("Highest", fmt(top["value"]), top["label"], "#FEE2E2", "up"),
-            tile("Lowest", fmt(low["value"]), low["label"], "#D1FAE5", "down"),
+            tile("Highest", fmt(top["value"]), escape(str(top["label"])), "#FEE2E2", "up"),
+            tile("Lowest", fmt(low["value"]), escape(str(low["label"])), "#D1FAE5", "down"),
             tile("Average", fmt(df["value"].mean()), f"{len(df)} compared", "#DBEAFE", "bars"),
         ]
         if standard:
@@ -1293,7 +1337,7 @@ def side_panel(chart):
         for prev, cur in zip(df.itertuples(), list(df.itertuples())[1:]):
             diff = cur.value - prev.value
             cls = "up" if diff > 0 else "down"
-            rows += (f'<div class="lb-row"><span class="lb-name">{prev.label} → {cur.label}</span>'
+            rows += (f'<div class="lb-row"><span class="lb-name">{escape(str(prev.label))} → {escape(str(cur.label))}</span>'
                      f'<span class="chg {cls}">{diff:+,.1f}</span></div>')
         html(f'<div class="lb"><div class="lb-title">Year-to-year change</div>{rows}</div>')
         return
@@ -1303,7 +1347,7 @@ def side_panel(chart):
         df = df.sort_values("value", ascending=False)
         rows = "".join(
             f'<div class="lb-row"><span class="swatch" style="background:{PALETTE[i % len(PALETTE)]};"></span>'
-            f'<span class="lb-name">{r.label}</span><span class="lb-val">{r.value / total * 100:.1f}%</span></div>'
+            f'<span class="lb-name">{escape(str(r.label))}</span><span class="lb-val">{r.value / total * 100:.1f}%</span></div>'
             for i, r in enumerate(df.itertuples())
         )
         html(f'<div class="lb"><div class="lb-title">Share of total</div>{rows}</div>')
@@ -1316,7 +1360,7 @@ def side_panel(chart):
             gap = r.value - std
             cls = "up" if gap > 0 else "down"
             word = "above" if gap > 0 else "within"
-            rows += (f'<div class="lb-row"><span class="lb-name">{r.label}</span>'
+            rows += (f'<div class="lb-row"><span class="lb-name">{escape(str(r.label))}</span>'
                      f'<span class="chg {cls}">{gap:+,.1f}</span></div>'
                      f'<div class="lb-note">{fmt(r.value)} vs standard {fmt(std)} · {word}</div>')
         html(f'<div class="lb"><div class="lb-title">Gap from the standard</div>{rows}</div>')
@@ -1326,11 +1370,11 @@ def side_panel(chart):
     top_value = df["value"].max() or 1
     rows = "".join(
         f'<div class="lb-row"><span class="lb-rank">{i}</span>'
-        f'<span class="lb-name">{r.label}</span><span class="lb-val">{fmt(r.value)}</span></div>'
+        f'<span class="lb-name">{escape(str(r.label))}</span><span class="lb-val">{fmt(r.value)}</span></div>'
         f'<div class="lb-bar"><span style="width:{max(6, r.value / top_value * 100):.0f}%;"></span></div>'
         for i, r in enumerate(df.itertuples(), 1)
     )
-    html(f'<div class="lb"><div class="lb-title">Top {len(df)}</div>{rows}</div>')
+    html(f'<div class="lb"><div class="lb-title">Highest {len(df)}</div>{rows}</div>')
 
 
 def show_assistant_message(message, index):
@@ -1360,8 +1404,8 @@ def show_assistant_message(message, index):
     html(f'''
 <div class="dash-head">
 <div>
-<div class="dash-eyebrow">Live dashboard · {chart.get("title", "")}</div>
-<div class="dash-headline">{chart.get("headline", "")}</div>
+<div class="dash-eyebrow">Live dashboard · {escape(str(chart.get("title", "")))}</div>
+<div class="dash-headline">{escape(str(chart.get("headline", "")))}</div>
 </div>
 <span class="source-tag">{ic("file", "#1E3A8A", 13)} {source}</span>
 </div>
@@ -1474,6 +1518,9 @@ LABEL_COLOURS = {
     "High-pressure facilities – visit before enrolment": "#F97066",
     "Insufficient data – verify with school": "#94A3B8",
 }
+SHORT_LABELS = {"Within UBE benchmark": "Within benchmark",
+                "Above UBE benchmark – check capacity": "Above – check capacity",
+                "High-pressure facilities – visit before enrolment": "High pressure"}
 
 
 @st.cache_data(show_spinner=False)
@@ -1661,9 +1708,20 @@ def search_schools(f):
         rows = rows[rows[f"Offers_{f['level']}"]]
 
     notes["total_in_area"] = len(rows)
+    best = f["order"] == "best"
     col = "Pressure_Score" if f["sort_by"] == "overall" else UBE[f["sort_by"]][0]
     rows = rows.assign(_missing=rows[col].isna())
-    rows = rows.sort_values(["_missing", col], ascending=[True, f["order"] == "best"])
+    if f["sort_by"] == "overall":
+        # Within benchmark first (or high-pressure first), then by the average
+        rank = {"Within UBE benchmark": 0, "Above UBE benchmark – check capacity": 1,
+                "High-pressure facilities – visit before enrolment": 2}
+        rows = rows.assign(_label=rows["Overall_Label"].map(rank).fillna(3))
+        if not best:
+            rows["_label"] = rows["_label"].where(rows["_label"] == 3, 2 - rows["_label"])
+        rows = rows.sort_values(["_missing", "_label", col], ascending=[True, True, best])
+        rows = rows.drop(columns="_label")
+    else:
+        rows = rows.sort_values(["_missing", col], ascending=[True, best])
     return rows.head(f["top_n"]), notes
 
 
@@ -1681,7 +1739,9 @@ Schools found (in this order):
 {schools}
 
 Write a short, friendly answer (3 to 6 sentences, plain English):
-- Name the schools in the order given, with their key figures.
+- Name the schools in the order given, with their key figures. Say how they
+  are ordered (for example "from least crowded"); never say "in the order
+  you asked" unless the user asked for an order.
 - Use the labels exactly as given ("Within UBE benchmark", "Above UBE
   benchmark – check capacity", "High-pressure facilities – visit before
   enrolment", "Insufficient data – verify with school"). Never call a school
@@ -1702,7 +1762,7 @@ def school_rows_text(rows):
     for i, r in enumerate(rows.itertuples(), 1):
         dist = f", {r.Distance_km} km away (straight line)" if hasattr(r, "Distance_km") else ""
         def v(x):
-            return "n/a" if pd.isna(x) else fmt(x)
+            return "n/a" if pd.isna(x) else f"{x:.1f}"
         lines.append(
             f"{i}. {r.School_Name} ({r.Level}, {r.Community or r.Ward}, {r.LGA}{dist}): "
             f"{v(r.Students_per_Teacher)} students per teacher, {v(r.Students_per_Classroom)} "
@@ -1869,7 +1929,7 @@ def show_school_dashboard(message, index=0):
         if schools[sort_col].notna().sum() >= 1:
             chart = {"type": "bar", "title": sort_words, "label_name": "School",
                      "value_name": sort_words[0].upper() + sort_words[1:], "standard": standard,
-                     "ascending": f.get("order") != "worst",
+                     "ascending": f.get("order") != "worst", "keep_order": True,
                      "data": [{"label": r.School_Name[:38], "value": float(getattr(r, sort_col))}
                               for r in schools.itertuples() if not pd.isna(getattr(r, sort_col))]}
             overall = f.get("sort_by") not in UBE
@@ -1878,15 +1938,14 @@ def show_school_dashboard(message, index=0):
                 # one measure above its standard makes the school "Above".
                 for d, r in zip(chart["data"], [r for r in schools.itertuples()
                                                 if not pd.isna(getattr(r, sort_col))]):
-                    label = str(r.Overall_Label)
-                    if label.startswith("Within"):
-                        d["status"] = "Within standard"
-                    elif label.startswith(("Above", "High")):
-                        d["status"] = "Above standard"
+                    d["status"] = SHORT_LABELS.get(str(r.Overall_Label), "Insufficient data")
+                chart["status_scale"] = (list(SHORT_LABELS.values()) + ["Insufficient data"],
+                                         list(LABEL_COLOURS.values()))
             draw_chart(chart)
             html('<p class="map-key">' + (
                 "Bar length = the average of the three measures (dotted line = the standard). "
-                "Bar colour = the school's label: red if even one measure is above its standard."
+                "Bar colour = the school's label, as on the map: a school is only "
+                "\"Within benchmark\" if all three measures are within their standards."
                 if overall else
                 "Dotted line = the UBE standard. Bars past it are above the standard.") + '</p>')
         else:
@@ -2030,6 +2089,11 @@ def build_agent(vector_db, chat_model, general_retriever):
             note = ("\n(Note for ERGIT: no public schools matched this search in the "
                     "2012-2014 school survey. Say so kindly and suggest naming an LGA, "
                     "for example: 'Public JSS schools in Kosofe with the smallest classes'.)")
+            if (state.get("school_meta") or {}).get("need_area"):
+                note = ("\n(Note for ERGIT: the user wants public schools but did not say "
+                        "where. Ask kindly which LGA or area of Lagos they live in or are "
+                        "moving to, and whether the child needs primary, JSS or SSS. Example "
+                        "they can type: 'Public primary schools in Surulere'.)")
         reply = friendly_reply(state["question"] + note, chat_model,
                                state.get("name"), state.get("history", "(none)"))
         return {"answer": reply, "source": "ERGIT", "chart": None}
@@ -2049,12 +2113,14 @@ def build_agent(vector_db, chat_model, general_retriever):
             chart = chart or extra
         if not text.strip():
             text = (chart or {}).get("headline") or (
-                "Sorry, I couldn't put that answer together 😅. Could you ask it "
+                "Sorry, I couldn't put that answer together. Could you ask it "
                 "in a shorter way? For example: *How did the student-teacher "
                 "ratio change from 2016/17 to 2019/20?*"
             )
         if not chart:
             chart = make_chart(state["standalone"], text, chat_model)
+        if chart and not chart_is_grounded(chart, state["context"] + "\n" + text):
+            chart = None        # numbers we cannot find in the documents: no chart
         if chart:
             chart = choose_chart_type(state["standalone"], chart)
         return {"answer": text, "chart": chart}
@@ -2063,6 +2129,12 @@ def build_agent(vector_db, chat_model, general_retriever):
         raw = run_quick(school_filter_prompt, {"history": state.get("history", "(none)"),
                                                "question": state["standalone"]}, chat_model)
         filters = read_school_filters(raw, state["standalone"])
+        asked = (state["question"] + " " + state["standalone"]).lower()
+        if not (filters.get("lga") or filters.get("place") or filters.get("school_name")) \
+                and not re.search(r"\b(all of lagos|across lagos|anywhere in lagos|whole (of )?lagos|"
+                                     r"all lgas|any lga|statewide|whole state)\b", asked):
+            # A parent who has not said where: ask, instead of guessing all of Lagos
+            return {"schools": [], "school_meta": {"filters": filters, "need_area": True}}
         rows, notes = search_schools(filters)
         if rows is None or rows.empty:
             return {"schools": [], "school_meta": notes}
@@ -2070,8 +2142,16 @@ def build_agent(vector_db, chat_model, general_retriever):
                 "context": school_rows_text(rows)}
 
     def school_answer(state):
-        f = state["school_meta"]["filters"]
+        meta = state["school_meta"]
+        f = meta["filters"]
         search = ", ".join(f"{k}: {v}" for k, v in f.items() if v)
+        search += (". Order: least crowded first" if f.get("order") == "best"
+                   else ". Order: most crowded first")
+        if f.get("place") and not meta.get("place_found"):
+            where = f.get("lga") or "all of Lagos"
+            search += (f". NOTE: the place '{f['place']}' is not in the survey data, so "
+                       f"these schools are from {where}. Tell the user this.")
+        search += f". Schools in this area: {meta.get('total_in_area')}"
         wants_support = re.search(r"\b(empower\w*|support\w*|fund\w*|donat\w*|ngo|sponsor\w*)\b",
                                   (state.get("question", "") + " " + state["standalone"]).lower())
         goal_rule = ("- The user wants to support, fund or empower schools: say these schools "
@@ -2259,7 +2339,7 @@ h1 {font-size: 32px;} .text {left: 7%; right: 7%;} canvas {opacity: 0.35;}
 <div class="grid"></div>
 <canvas id="scene"></canvas>
 <div class="text">
-<div class="badge">🎓 Education Resource-Gap Intelligence Tool</div>
+<div class="badge">Education Resource-Gap Intelligence Tool</div>
 <h1>Every child deserves a <span>teacher</span>, a classroom and a clean toilet.</h1>
 <p>ERGIT shows which Lagos LGAs are furthest from the national school standards, and helps parents compare public schools before they enrol a child.</p>
 <div class="row">
@@ -2709,7 +2789,7 @@ so decision-makers can see where support should go first, and parents can choose
 <div class="cta">
 <h3>Ready to explore the data?</h3>
 <p>Ask which LGAs need teachers, classrooms or toilets most, or find a public school for your child.</p>
-<p class="cta-for">Built for Lagos SUBEB, the Ministry of Basic &amp; Secondary Education, UBEC, NGOs, donors and researchers, and for parents choosing a public school.</p>
+<p class="cta-for">Useful for Lagos SUBEB, the Ministry of Basic &amp; Secondary Education, UBEC, NGOs, donors and researchers, and for parents choosing a public school.</p>
 </div>
 """)
     with right:
@@ -3101,8 +3181,17 @@ def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
             st.rerun()
 
         if "error" in version["answer"]:
-            st.error("Something went wrong while answering. Tap Retry to try again.")
-            st.code(version["answer"]["error"])
+            err = version["answer"]["error"].lower()
+            if "429" in err or "rate" in err:
+                st.warning("ERGIT is very busy right now. Please wait a minute, then tap Retry.")
+            elif "401" in err or "api key" in err or "auth" in err:
+                st.error("ERGIT could not sign in to the AI service. The app owner needs to check the API key.")
+            elif "connection" in err or "timeout" in err or "timed out" in err:
+                st.warning("The connection dropped while answering. Check your internet, then tap Retry.")
+            else:
+                st.error("Something went wrong while answering. Tap Retry to try again.")
+            with st.expander("Details"):
+                st.code(version["answer"]["error"])
         else:
             show_assistant_message(version["answer"], t_index)
             if t_index == len(st.session_state.turns) - 1 and st.session_state.editing is None:
@@ -3130,6 +3219,10 @@ def make_followups(answer):
     chart = answer.get("chart") or {}
     labels = [d["label"] for d in chart.get("data", [])]
     lgas = [match_lga(x) for x in labels if match_lga(x)]
+    if not lgas:
+        named = next((lga for lga in LGA_LIST
+                      if re.search(rf"\b{re.escape(lga.lower())}\b", asked)), None)
+        lgas = [named] if named else []
 
     if schools:
         f = (answer.get("school_meta") or {}).get("filters", {})
