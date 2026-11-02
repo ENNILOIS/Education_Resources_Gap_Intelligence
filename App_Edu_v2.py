@@ -539,7 +539,8 @@ def load_rag_components(api_key, embedding_api_key):
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1",
         model="openai/gpt-oss-20b",
-        temperature=0
+        temperature=0,
+        max_tokens=4096          # room for the full answer, so it is never cut off
     )
 
     return vector_db, chat_model
@@ -1116,7 +1117,8 @@ def status_colour(df, standard, scale=None):
     return alt.Color(
         "status:N", title=None,
         scale=alt.Scale(domain=domain, range=colours),
-        legend=alt.Legend(orient="top", labelLimit=0, columns=2)
+        # school charts draw their own key above the chart (it wraps on small screens)
+        legend=None if scale else alt.Legend(orient="top", labelLimit=0)
     )
 
 
@@ -1519,7 +1521,7 @@ LABEL_COLOURS = {
     "Insufficient data – verify with school": "#94A3B8",
 }
 SHORT_LABELS = {"Within UBE benchmark": "Within benchmark",
-                "Above UBE benchmark – check capacity": "Above – check capacity",
+                "Above UBE benchmark – check capacity": "Above benchmark",
                 "High-pressure facilities – visit before enrolment": "High pressure"}
 
 
@@ -1738,23 +1740,42 @@ Search used: {search}
 Schools found (in this order):
 {schools}
 
-Write a short, friendly answer (3 to 6 sentences, plain English):
-- Name the schools in the order given, with their key figures. Say how they
-  are ordered (for example "from least crowded"); never say "in the order
-  you asked" unless the user asked for an order.
-- Use the labels exactly as given ("Within UBE benchmark", "Above UBE
-  benchmark – check capacity", "High-pressure facilities – visit before
-  enrolment", "Insufficient data – verify with school"). Never call a school
-  good or bad: the figures measure crowding and facilities, not teaching
-  quality or results.
-- Say once that the school figures come from a 2012–2014 survey and may
-  have changed.
-- If few schools were found, say the data for that area is thin.
-- If the user is choosing a school for a child, end by suggesting they visit
-  their top 3 to 5 schools and ask about class sizes, teachers and travel time.
+Write ONLY a short, warm opening of 1 or 2 sentences (plain English, no
+list, no table, no headings). The app shows the full list of schools, their
+figures, the survey date and advice right after your words, so do NOT list
+the schools, do NOT repeat their figures and do NOT add closing advice.
+In the opening:
+- Say what was found, e.g. "Here are 10 public schools in Ikorodu, with the
+  schools within the UBE benchmark first." Describe the order as given in
+  "Search used". If there is a NOTE in "Search used", mention it.
+- If the user asked about one school, say in one sentence how it compares
+  with the standards, using its label exactly as given.
+- Never call a school good or bad: the figures measure crowding and
+  facilities, not teaching quality.
 {goal_rule}
-Use only the figures above. Do not invent schools or numbers.
+Use only the information above. Do not invent schools or numbers.
 """)
+
+
+def school_list_markdown(records):
+    """The numbered school list, written by code so it is always complete and exact."""
+    def v(x):
+        return "n/a" if x is None or pd.isna(x) else f"{float(x):.1f}"
+    short = {"Within UBE benchmark": "Within benchmark",
+             "Above UBE benchmark – check capacity": "Above benchmark – check capacity",
+             "High-pressure facilities – visit before enrolment": "High pressure – visit before enrolment",
+             "Insufficient data – verify with school": "Insufficient data – verify with school"}
+    lines = []
+    for i, r in enumerate(records, 1):
+        place = r.get("Community") or r.get("LGA") or ""
+        dist = f", {r['Distance_km']} km away" if r.get("Distance_km") is not None else ""
+        label = short.get(r.get("Overall_Label"), r.get("Overall_Label") or "")
+        lines.append(
+            f"{i}. **{r['School_Name']}** ({r.get('Level', '')}, {place}{dist}): "
+            f"{v(r.get('Students_per_Teacher'))} per teacher · "
+            f"{v(r.get('Students_per_Classroom'))} per classroom · "
+            f"{v(r.get('Students_per_Toilet'))} per toilet — *{label}*")
+    return "\n".join(lines)
 
 
 def school_rows_text(rows):
@@ -1853,8 +1874,8 @@ def school_map(schools, index):
     state = st.pydeck_chart(deck, height=420, on_select="rerun",
                             selection_mode="single-object", key=f"school_map_{index}")
     html('<p class="map-key">'
-         + " ".join(f'<span style="color:{c};">●</span> {k.split(" –")[0]}'
-                    for k, c in LABEL_COLOURS.items()) + "</p>")
+         + " &nbsp; ".join(f'<span style="white-space:nowrap;"><span style="color:{c};">●</span> '
+                           f'{k.split(" –")[0]}</span>' for k, c in LABEL_COLOURS.items()) + "</p>")
 
     # The school the user tapped on the map
     picked = None
@@ -1938,11 +1959,14 @@ def show_school_dashboard(message, index=0):
                 # one measure above its standard makes the school "Above".
                 for d, r in zip(chart["data"], [r for r in schools.itertuples()
                                                 if not pd.isna(getattr(r, sort_col))]):
-                    d["status"] = SHORT_LABELS.get(str(r.Overall_Label), "Insufficient data")
-                names = list(SHORT_LABELS.values()) + ["Insufficient data"]
+                    d["status"] = SHORT_LABELS.get(str(r.Overall_Label), "No data")
+                names = list(SHORT_LABELS.values()) + ["No data"]
                 used = {d.get("status") for d in chart["data"]}
                 pairs = [(n, c) for n, c in zip(names, LABEL_COLOURS.values()) if n in used]
                 chart["status_scale"] = ([n for n, _ in pairs], [c for _, c in pairs])
+                html('<p class="map-key" style="margin:0 0 0.3rem 0;">' + " &nbsp; ".join(
+                    f'<span style="white-space:nowrap;"><span style="color:{c};">■</span> {n}</span>'
+                    for n, c in pairs) + '</p>')
             draw_chart(chart)
             html('<p class="map-key">' + (
                 "Bar length = the average of the three measures (dotted line = the standard). "
@@ -2168,12 +2192,26 @@ def build_agent(vector_db, chat_model, general_retriever):
                      if wants_support else
                      "- The user is a parent choosing a school. Do NOT talk about funding, "
                      "supporting or empowering schools.")
-        text = (school_answer_prompt | chat_model | StrOutputParser()).invoke({
+        opening = (school_answer_prompt | chat_model | StrOutputParser()).invoke({
             "name": state.get("name") or "not given", "history": state.get("history", "(none)"),
             "question": state["standalone"], "search": search, "schools": state["context"],
-            "goal_rule": goal_rule})
-        if not text.strip():
-            text = "Here are the schools I found. " + SCHOOL_NOTE
+            "goal_rule": goal_rule}).strip()
+        records = state["schools"]
+        if not opening:
+            opening = f"Here {'is' if len(records) == 1 else 'are'} the school{'s' if len(records) != 1 else ''} I found."
+        parts = [opening, school_list_markdown(records)]
+        thin = len(records) < 3 and not f.get("school_name")
+        if thin:
+            parts.append("The survey has only a few schools for this search, so the data here is thin.")
+        if wants_support:
+            parts.append("These figures come from the 2012–2014 NMIS school survey and may have "
+                         "changed. Before acting, confirm each school's current needs with the "
+                         "Lagos SUBEB office or the Local Government Education Authority (LGEA).")
+        else:
+            parts.append("These figures come from the 2012–2014 NMIS school survey and may have "
+                         "changed. Before deciding, visit your top 3 to 5 choices and ask about "
+                         "class sizes, teacher numbers and travel time.")
+        text = "\n\n".join(parts)
         return {"answer": text, "source": "NMIS 2012–2014", "chart": None}
 
     graph = StateGraph(ErgitState)
