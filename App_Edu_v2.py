@@ -2211,7 +2211,22 @@ def build_agent(vector_db, chat_model, general_retriever):
         opening = " ".join(x for x in sentences if not re.search(
             r"\b(the app|your words|below|following list|list of schools|instructions?)\b", x, re.I)).strip()
         if not opening:
-            opening = f"Here {'is' if len(records) == 1 else 'are'} the school{'s' if len(records) != 1 else ''} I found."
+            # A clear opening written by code, if the AI's one was empty or removed
+            n = len(records)
+            where = meta.get("place_found") or f.get("lga") or "Lagos"
+            level = {"Primary": "primary ", "JSS": "JSS ", "SSS": "SSS ", "Secondary": "secondary "}.get(f.get("level"), "")
+            if f.get("school_name"):
+                opening = f"Here {'is the school' if n == 1 else 'are the closest matches'} I found for “{f['school_name']}”."
+            elif f.get("sort_by") == "overall":
+                order = ("with the schools within the UBE benchmark first, then the rest, least crowded first in each group"
+                         if f.get("order") == "best" else
+                         "with the high-pressure schools first, then the rest, most crowded first in each group")
+                opening = f"Here {'is' if n == 1 else 'are'} {n} public {level}school{'s' if n != 1 else ''} in {where}, {order}."
+            else:
+                words = UBE[f["sort_by"]][2]
+                order = "fewest" if f.get("order") == "best" else "most"
+                opening = (f"Here {'is' if n == 1 else 'are'} {n} public {level}school{'s' if n != 1 else ''} in {where}, "
+                           f"from the {order} {words}.")
         parts = [opening, school_list_markdown(records)]
         thin = len(records) < 3 and not f.get("school_name")
         if thin:
