@@ -1495,7 +1495,9 @@ Reply with ONE JSON object only:
 {{"lga": "one LGA from the list, or null",
   "place": "a town, area or community named by the user that is not an LGA, or null",
   "level": "Primary" or "JSS" or "SSS" or "Secondary" (JSS or SSS) or null,
-  "school_name": "a school the user named, or null",
+  "school_name": "the name of ONE particular school the user named (for
+                  example 'Ikorodu Grammar School'), or null. A town, area
+                  or LGA is NOT a school name.",
   "sort_by": "teacher" or "classroom" or "toilet" or "overall",
   "order": "best" (least crowded first) or "worst" (most crowded first;
            use this for schools that are lacking, in need, or to support),
@@ -1534,6 +1536,11 @@ def match_lga(text):
     return next((x for x in LGA_LIST if x.lower() == close[0]), None) if close else None
 
 
+SCHOOL_WORDS = re.compile(r"\b(school|schools|college|grammar|academy|high|comprehensive|"
+                          r"primary|secondary|jss|sss|model|memorial|nursery|community|"
+                          r"c\.?p\.?s|l\.?a\.?|unity)\b")
+
+
 def guess_school_filters(question):
     """Simple rules, used when the AI reply cannot be read."""
     q = question.lower()
@@ -1562,6 +1569,16 @@ def read_school_filters(raw, question):
         value = data.get(key)
         if value not in (None, "", "null", "None"):
             out[key] = value
+    # "Ikorodu" alone is an LGA, not a school. Keep a school name only if it
+    # looks like one (has a word like school/college/grammar) or is not a place.
+    name = str(out.get("school_name") or "").strip()
+    if name and not SCHOOL_WORDS.search(name.lower()) and (
+            match_lga(name) or name.lower() in str(question).lower().split()):
+        if not data.get("lga") and match_lga(name):
+            data["lga"] = match_lga(name)
+        elif not data.get("place") and not match_lga(name):
+            out["place"] = name
+        out["school_name"] = None
     explicit_lga = match_lga(data.get("lga"))
     # A school's name often contains a place name ("Ifako Junior..."), so for a
     # named school only use an LGA the AI picked out explicitly.
@@ -1664,9 +1681,7 @@ Write a short, friendly answer (3 to 6 sentences, plain English):
 - If few schools were found, say the data for that area is thin.
 - If the user is choosing a school for a child, end by suggesting they visit
   their top 3 to 5 schools and ask about class sizes, teachers and travel time.
-- If the user wants to support, fund or "empower" schools, say these schools
-  showed the greatest pressure in the 2012-2014 survey, and suggest confirming
-  their current needs with the Lagos SUBEB office or the LGEA before acting.
+{goal_rule}
 Use only the figures above. Do not invent schools or numbers.
 """)
 
@@ -2031,9 +2046,18 @@ def build_agent(vector_db, chat_model, general_retriever):
     def school_answer(state):
         f = state["school_meta"]["filters"]
         search = ", ".join(f"{k}: {v}" for k, v in f.items() if v)
+        wants_support = re.search(r"\b(empower\w*|support\w*|fund\w*|donat\w*|ngo|sponsor\w*)\b",
+                                  (state.get("question", "") + " " + state["standalone"]).lower())
+        goal_rule = ("- The user wants to support, fund or empower schools: say these schools "
+                     "showed the greatest pressure in the 2012-2014 survey, and suggest confirming "
+                     "their current needs with the Lagos SUBEB office or the LGEA before acting."
+                     if wants_support else
+                     "- The user is a parent choosing a school. Do NOT talk about funding, "
+                     "supporting or empowering schools.")
         text = (school_answer_prompt | chat_model | StrOutputParser()).invoke({
             "name": state.get("name") or "not given", "history": state.get("history", "(none)"),
-            "question": state["standalone"], "search": search, "schools": state["context"]})
+            "question": state["standalone"], "search": search, "schools": state["context"],
+            "goal_rule": goal_rule})
         if not text.strip():
             text = "Here are the schools I found. " + SCHOOL_NOTE
         return {"answer": text, "source": "NMIS 2012–2014", "chart": None}
