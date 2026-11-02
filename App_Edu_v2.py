@@ -1116,7 +1116,7 @@ def status_colour(df, standard, scale=None):
     return alt.Color(
         "status:N", title=None,
         scale=alt.Scale(domain=domain, range=colours),
-        legend=alt.Legend(orient="top")
+        legend=alt.Legend(orient="top", labelLimit=0, columns=2)
     )
 
 
@@ -1910,7 +1910,7 @@ def show_school_dashboard(message, index=0):
     tiles = [
         tile("Schools shown", str(len(schools)), f"of {meta.get('total_in_area', len(schools))} in the area", "#DBEAFE", "classroom"),
         tile("Within benchmark", f"{within}/{len(schools)}", "on all three measures", "#D1FAE5", "target"),
-        tile("Typical class", fmt(med_class) if not pd.isna(med_class) else "n/a",
+        tile("Typical class", f"{med_class:.1f}" if not pd.isna(med_class) else "n/a",
              "students per classroom (median)", "#FEF3C7", "teacher"),
         tile("Full data", f"{int(complete.sum())}/{len(schools)}", "schools with all figures", "#EDE9FE", "file"),
     ]
@@ -1939,8 +1939,10 @@ def show_school_dashboard(message, index=0):
                 for d, r in zip(chart["data"], [r for r in schools.itertuples()
                                                 if not pd.isna(getattr(r, sort_col))]):
                     d["status"] = SHORT_LABELS.get(str(r.Overall_Label), "Insufficient data")
-                chart["status_scale"] = (list(SHORT_LABELS.values()) + ["Insufficient data"],
-                                         list(LABEL_COLOURS.values()))
+                names = list(SHORT_LABELS.values()) + ["Insufficient data"]
+                used = {d.get("status") for d in chart["data"]}
+                pairs = [(n, c) for n, c in zip(names, LABEL_COLOURS.values()) if n in used]
+                chart["status_scale"] = ([n for n, _ in pairs], [c for _, c in pairs])
             draw_chart(chart)
             html('<p class="map-key">' + (
                 "Bar length = the average of the three measures (dotted line = the standard). "
@@ -2145,8 +2147,14 @@ def build_agent(vector_db, chat_model, general_retriever):
         meta = state["school_meta"]
         f = meta["filters"]
         search = ", ".join(f"{k}: {v}" for k, v in f.items() if v)
-        search += (". Order: least crowded first" if f.get("order") == "best"
-                   else ". Order: most crowded first")
+        if f.get("sort_by") == "overall":
+            search += (". Order: schools within the benchmark first, then the rest; "
+                       "least crowded first within each group" if f.get("order") == "best"
+                       else ". Order: high-pressure schools first, then the rest; "
+                       "most crowded first within each group")
+        else:
+            search += (". Order: least crowded first" if f.get("order") == "best"
+                       else ". Order: most crowded first")
         if f.get("place") and not meta.get("place_found"):
             where = f.get("lga") or "all of Lagos"
             search += (f". NOTE: the place '{f['place']}' is not in the survey data, so "
