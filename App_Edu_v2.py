@@ -1064,9 +1064,11 @@ def tooltip_for(chart):
 
 
 def status_colour(df, standard):
-    df["status"] = df["value"].apply(
+    # A school chart can give each bar its own status (from the school's label)
+    by_value = df["value"].apply(
         lambda v: "Above standard" if v > standard else "Within standard"
     )
+    df["status"] = df["status"].fillna(by_value) if "status" in df else by_value
     return alt.Color(
         "status:N", title=None,
         scale=alt.Scale(domain=["Above standard", "Within standard"],
@@ -1870,8 +1872,23 @@ def show_school_dashboard(message, index=0):
                      "ascending": f.get("order") != "worst",
                      "data": [{"label": r.School_Name[:38], "value": float(getattr(r, sort_col))}
                               for r in schools.itertuples() if not pd.isna(getattr(r, sort_col))]}
+            overall = f.get("sort_by") not in UBE
+            if overall:
+                # Colour by the school's label, so the chart agrees with the list:
+                # one measure above its standard makes the school "Above".
+                for d, r in zip(chart["data"], [r for r in schools.itertuples()
+                                                if not pd.isna(getattr(r, sort_col))]):
+                    label = str(r.Overall_Label)
+                    if label.startswith("Within"):
+                        d["status"] = "Within standard"
+                    elif label.startswith(("Above", "High")):
+                        d["status"] = "Above standard"
             draw_chart(chart)
-            html('<p class="map-key">Dotted line = the UBE standard. Bars past it are above the standard.</p>')
+            html('<p class="map-key">' + (
+                "Bar length = the average of the three measures (dotted line = the standard). "
+                "Bar colour = the school's label: red if even one measure is above its standard."
+                if overall else
+                "Dotted line = the UBE standard. Bars past it are above the standard.") + '</p>')
         else:
             counts = schools["Overall_Label"].value_counts()
             chart = {"type": "pie", "title": "Overall labels", "label_name": "Label",
