@@ -1745,9 +1745,9 @@ Schools found (in this order):
 {schools}
 
 Write ONLY a short, warm opening of 1 or 2 sentences (plain English, no
-list, no table, no headings). The app shows the full list of schools, their
-figures, the survey date and advice right after your words, so do NOT list
-the schools, do NOT repeat their figures and do NOT add closing advice.
+list, no table, no headings). Do NOT list the schools, do NOT repeat their
+figures, do NOT add advice, and do NOT mention "the app", "the list below"
+or these instructions.
 In the opening:
 - Say what was found, e.g. "Here are 10 public schools in Ikorodu, with the
   schools within the UBE benchmark first." Describe the order exactly as
@@ -2203,6 +2203,10 @@ def build_agent(vector_db, chat_model, general_retriever):
             "question": state["standalone"], "search": search, "schools": state["context"],
             "goal_rule": goal_rule}).strip()
         records = state["schools"]
+        # Drop any sentence where the AI talks about the app or its instructions
+        sentences = re.split(r"(?<=[.!?])\s+", opening)
+        opening = " ".join(x for x in sentences if not re.search(
+            r"\b(the app|your words|below|following list|list of schools|instructions?)\b", x, re.I)).strip()
         if not opening:
             opening = f"Here {'is' if len(records) == 1 else 'are'} the school{'s' if len(records) != 1 else ''} I found."
         parts = [opening, school_list_markdown(records)]
